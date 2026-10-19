@@ -51,6 +51,7 @@
     examples: ['M4 5h7v6H4zM13 5h7v6h-7zM4 13h7v6H4zM13 13h7v6h-7z'],
     magnet: ['M6 4v7a6 6 0 0 0 12 0V4', 'M6 8h4M14 8h4'],
     trash: ['M4 7h16', 'M9 7V4h6v3', 'M6 7l1 13h10l1-13'],
+    copy: ['M8 8h11v11H8z', 'M5 15V5h10'],
   } as const;
 
   export type IconName = keyof typeof ICONS;

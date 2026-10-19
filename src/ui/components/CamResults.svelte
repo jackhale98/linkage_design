@@ -6,10 +6,11 @@
   import { projectFileName } from '../../core/model/project';
   import { downloadText } from '../lib/files';
   import { formatValue as fmt } from '../lib/format';
+  import { emptyCam } from '../../core/cam/types';
   import { store } from '../state/project.svelte';
   import { camUi } from '../state/cam.svelte';
 
-  const cam = $derived(store.project.cam);
+  const cam = $derived(camUi.cam ?? emptyCam());
   const a = $derived(camUi.analysis);
   const sm = $derived(a.summary);
   const L = $derived(store.project.meta.length_unit);

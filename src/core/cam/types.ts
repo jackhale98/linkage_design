@@ -39,6 +39,9 @@ export const ROTATIONS = ['ccw', 'cw'] as const;
 export type Rotation = (typeof ROTATIONS)[number];
 
 export interface CamData {
+  /** Stable ID (C1, C2…) so cam joints in the mechanism can refer to it. */
+  id: string;
+  name: string;
   /** Base circle radius: the smallest cam radius (the cam surface at zero lift). */
   baseRadius: number;
   rotation: Rotation;
@@ -69,8 +72,10 @@ export interface CamData {
   extras: Record<string, string>;
 }
 
-export function emptyCam(): CamData {
+export function emptyCam(id = 'C1', name = 'Cam 1'): CamData {
   return {
+    id,
+    name,
     baseRadius: 40,
     rotation: 'ccw',
     speed: 60,

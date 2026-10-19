@@ -1,15 +1,18 @@
-// Cam <-> CSV sections: [cam] (settings, key/value) and [cam_segments].
+// Cams <-> CSV sections: [cams] (one row of settings per cam) and
+// [cam_segments] (each cam's motion program, in order). Files from before
+// several cams were supported have a single [cam] key/value section; those
+// still open, as cam C1.
 
 import { Diagnostics } from '../csv/diagnostics';
 import type { Delimiter } from '../csv/rfc4180';
 import type { RawSection, SectionOut } from '../csv/sectioned';
-import { readKeyValue, readTable, writeKeyValue, writeTable } from '../csv/table';
+import { readKeyValue, readTable, writeTable } from '../csv/table';
 import { MOTION_LAWS } from './laws';
 import { FOLLOWER_TYPES, ROTATIONS, SEGMENT_TYPES, emptyCam, type CamData } from './types';
 
 const d = emptyCam();
 
-const CAM_SPEC = {
+const SETTINGS = {
   base_radius: { type: 'number', default: d.baseRadius, min: 0 },
   rotation: { type: 'enum', values: ROTATIONS, default: d.rotation },
   speed: { type: 'number', default: d.speed, min: 0 },
@@ -26,29 +29,32 @@ const CAM_SPEC = {
   step: { type: 'number', default: d.step, min: 0.01, max: 10 },
 } as const;
 
-const SEGMENTS_SPEC = {
+const CAMS_SPEC = {
   id: { type: 'id', required: true },
+  name: { type: 'string' },
+  ...SETTINGS,
+} as const;
+
+const SEGMENTS_SPEC = {
+  cam: { type: 'ref' },
+  id: { type: 'ref', required: true },
   type: { type: 'enum', values: SEGMENT_TYPES, required: true },
   duration: { type: 'number', required: true, min: 0 },
   lift: { type: 'number', default: 0, min: 0 },
   law: { type: 'enum', values: MOTION_LAWS, default: 'cycloidal' },
 } as const;
 
-export const CAM_SECTIONS = ['cam', 'cam_segments'] as const;
+export const CAM_SECTIONS = ['cams', 'cam', 'cam_segments'] as const;
 
-/** True for an untouched cam (no program, default settings): its sections are left out of the file. */
-function isDefault(c: CamData): boolean {
-  const e = emptyCam();
-  return (Object.keys(e) as (keyof CamData)[]).every((k) => JSON.stringify(c[k]) === JSON.stringify(e[k]));
-}
-
-export function writeCam(c: CamData): SectionOut[] {
-  if (isDefault(c)) return [];
+export function writeCams(cams: CamData[]): SectionOut[] {
+  if (!cams.length) return [];
   return [
-    writeKeyValue(
-      'cam',
-      CAM_SPEC,
-      {
+    writeTable(
+      'cams',
+      CAMS_SPEC,
+      cams.map((c) => ({
+        id: c.id,
+        name: c.name,
         base_radius: c.baseRadius,
         rotation: c.rotation,
         speed: c.speed,
@@ -64,21 +70,36 @@ export function writeCam(c: CamData): SectionOut[] {
         load: c.load,
         step: c.step,
         extras: c.extras,
-      },
-      'Cam: lengths and forces in project units; angles in degrees. follower: translating_roller, translating_flat, oscillating_roller, oscillating_flat (pivot on +x at pivot_distance). Oscillating followers: mass is the arm inertia about the pivot, spring_rate per radian, preload and load are torques.',
+      })),
+      'Cams: lengths and forces in project units; angles in degrees. follower: translating_roller, translating_flat, oscillating_roller, oscillating_flat (pivot on +x at pivot_distance). Oscillating followers: mass is the arm inertia about the pivot, spring_rate per radian, preload and load are torques.',
     ),
     writeTable(
       'cam_segments',
       SEGMENTS_SPEC,
-      c.segments,
-      'Motion program, in order from 0°: rise / return / dwell, duration in degrees, lift in length (or degrees for oscillating followers). Durations must add up to 360°.',
+      cams.flatMap((c) => c.segments.map((s) => ({ cam: c.id, ...s }))),
+      "Each cam's motion program, in order from 0°: rise / return / dwell, duration in degrees, lift in length (or degrees for oscillating followers). Durations must add up to 360°.",
     ),
   ];
 }
 
-export function readCam(sections: Map<string, RawSection>, delimiter: Delimiter, diag: Diagnostics): CamData {
-  const v = readKeyValue(sections.get('cam'), CAM_SPEC, delimiter, diag);
-  const segs = sections.get('cam_segments');
+type Settings = Omit<CamData, 'id' | 'name' | 'segments' | 'extras'>;
+
+function settings(v: {
+  base_radius: number;
+  rotation: CamData['rotation'];
+  speed: number;
+  follower: CamData['follower'];
+  roller_radius: number;
+  offset: number;
+  pivot_distance: number;
+  arm_length: number;
+  pressure_limit: number;
+  mass: number;
+  spring_rate: number;
+  preload: number;
+  load: number;
+  step: number;
+}): Settings {
   return {
     baseRadius: v.base_radius,
     rotation: v.rotation,
@@ -94,16 +115,51 @@ export function readCam(sections: Map<string, RawSection>, delimiter: Delimiter,
     preload: v.preload,
     load: v.load,
     step: v.step,
-    extras: v.extras,
-    segments: segs
-      ? readTable(segs, SEGMENTS_SPEC, delimiter, diag).map((r) => ({
+  };
+}
+
+export function readCams(
+  sections: Map<string, RawSection>,
+  delimiter: Delimiter,
+  diag: Diagnostics,
+): CamData[] {
+  const cams: CamData[] = [];
+  const table = sections.get('cams');
+  const legacy = sections.get('cam');
+  if (table) {
+    for (const r of readTable(table, CAMS_SPEC, delimiter, diag))
+      cams.push({
+        id: r.id ?? '',
+        name: r.name || r.id || '',
+        ...settings(r),
+        segments: [],
+        extras: r.extras,
+      });
+  } else if (legacy) {
+    const v = readKeyValue(legacy, SETTINGS, delimiter, diag);
+    cams.push({ id: 'C1', name: 'Cam 1', ...settings(v), segments: [], extras: v.extras });
+  }
+  const segs = sections.get('cam_segments');
+  if (segs) {
+    for (const r of readTable(segs, SEGMENTS_SPEC, delimiter, diag)) {
+      const where = { line: r.srcLine, section: 'cam_segments' };
+      // Old single-cam files have no cam column.
+      const camId = r.cam || (legacy && !table ? 'C1' : '');
+      const cam = cams.find((c) => c.id === camId);
+      if (!camId) diag.error('Say which cam this segment belongs to', { ...where, column: 'cam' });
+      else if (!cam) diag.error(`Cam "${camId}" doesn't exist`, { ...where, column: 'cam' });
+      else if (cam.segments.some((s) => s.id === r.id))
+        diag.error(`Segment "${r.id}" appears twice in ${camId}`, { ...where, column: 'id' });
+      else
+        cam.segments.push({
           id: r.id ?? '',
           type: r.type ?? 'dwell',
           duration: r.duration ?? 0,
           lift: r.lift,
           law: r.law,
           extras: r.extras,
-        }))
-      : [],
-  };
+        });
+    }
+  }
+  return cams;
 }

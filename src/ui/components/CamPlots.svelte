@@ -1,11 +1,12 @@
 <script lang="ts">
   import Chart from './Chart.svelte';
   import { isOscillating, isRoller } from '../../core/cam/types';
+  import { emptyCam } from '../../core/cam/types';
   import { store } from '../state/project.svelte';
   import { camUi, type CamPlotKey } from '../state/cam.svelte';
   import { ui } from '../state/ui.svelte';
 
-  const cam = $derived(store.project.cam);
+  const cam = $derived(camUi.cam ?? emptyCam());
   const a = $derived(camUi.analysis);
   const L = $derived(store.project.meta.length_unit);
   const F = $derived(store.project.meta.force_unit);

@@ -62,28 +62,15 @@ output_joint,
 input_point,
 output_point,
 
-# Cam: lengths and forces in project units; angles in degrees. follower: translating_roller, translating_flat, oscillating_roller, oscillating_flat (pivot on +x at pivot_distance). Oscillating followers: mass is the arm inertia about the pivot, spring_rate per radian, preload and load are torques.
-[cam]
-key,value
-base_radius,40
-rotation,ccw
-speed,300
-follower,translating_roller
-roller_radius,10
-offset,0
-pivot_distance,100
-arm_length,80
-pressure_limit,30
-mass,0.5
-spring_rate,1.2
-preload,30
-load,0
-step,0.5
+# Cams: lengths and forces in project units; angles in degrees. follower: translating_roller, translating_flat, oscillating_roller, oscillating_flat (pivot on +x at pivot_distance). Oscillating followers: mass is the arm inertia about the pivot, spring_rate per radian, preload and load are torques.
+[cams]
+id,name,base_radius,rotation,speed,follower,roller_radius,offset,pivot_distance,arm_length,pressure_limit,mass,spring_rate,preload,load,step
+C1,Dwell-rise-dwell,40,ccw,300,translating_roller,10,0,100,80,30,0.5,1.2,30,0,0.5
 
-# Motion program, in order from 0°: rise / return / dwell, duration in degrees, lift in length (or degrees for oscillating followers). Durations must add up to 360°.
+# Each cam's motion program, in order from 0°: rise / return / dwell, duration in degrees, lift in length (or degrees for oscillating followers). Durations must add up to 360°.
 [cam_segments]
-id,type,duration,lift,law
-S1,rise,100,25,poly_345
-S2,dwell,80,0,poly_345
-S3,return,100,25,poly_345
-S4,dwell,80,0,poly_345
+cam,id,type,duration,lift,law
+C1,S1,rise,100,25,poly_345
+C1,S2,dwell,80,0,poly_345
+C1,S3,return,100,25,poly_345
+C1,S4,dwell,80,0,poly_345

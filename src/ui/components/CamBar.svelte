@@ -7,7 +7,7 @@
   const a = $derived(camUi.analysis);
   const x = $derived(a.samples[camUi.sampleIndex]);
   const unit = $derived(
-    isOscillating(store.project.cam.follower) ? '°' : ` ${store.project.meta.length_unit}`,
+    isOscillating(camUi.cam?.follower ?? 'translating_roller') ? '°' : ` ${store.project.meta.length_unit}`,
   );
   const SPEEDS = [0.1, 0.25, 0.5, 1];
 </script>
@@ -27,7 +27,7 @@
       class="scrub"
       min="0"
       max="360"
-      step={store.project.cam.step}
+      step={camUi.cam?.step ?? 1}
       value={x.angle}
       aria-label="Cam angle"
       oninput={(e) => {

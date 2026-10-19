@@ -17,9 +17,9 @@ describe('example projects', () => {
       if (!r.ok) throw new Error(JSON.stringify(r.errors));
       expect(r.warnings).toEqual([]);
       expect(serializeProject(r.project)).toBe(text);
-      if (r.project.cam.segments.length) {
+      if (r.project.cams.length) {
         // A cam example: every check passes.
-        const a = analyzeCam(r.project.cam, {
+        const a = analyzeCam(r.project.cams[0]!, {
           length: r.project.meta.length_unit,
           force: r.project.meta.force_unit,
         });

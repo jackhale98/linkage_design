@@ -8,6 +8,7 @@
     SEGMENT_TYPES,
     isOscillating,
     isRoller,
+    emptyCam,
     type FollowerType,
     type SegmentType,
   } from '../../core/cam/types';
@@ -15,7 +16,8 @@
   import { store } from '../state/project.svelte';
   import { camUi } from '../state/cam.svelte';
 
-  const cam = $derived(store.project.cam);
+  const cam = $derived(camUi.cam ?? emptyCam());
+  const cams = $derived(store.project.cams);
   const a = $derived(camUi.analysis);
   const L = $derived(store.project.meta.length_unit);
   const F = $derived(store.project.meta.force_unit);
@@ -29,8 +31,40 @@
 </script>
 
 <header>
-  <h2>Cam</h2>
-  {#if !cam.segments.length}
+  <h2>Cams</h2>
+  {#if cams.length}
+    <div class="picker">
+      <select
+        class="select"
+        aria-label="Cam"
+        value={cam.id}
+        onchange={(e) => (camUi.selected = e.currentTarget.value)}
+      >
+        {#each cams as c (c.id)}<option value={c.id}>{c.id} · {c.name}</option>{/each}
+      </select>
+      <button class="btn icon" title="New cam" aria-label="New cam" onclick={() => camUi.addCam()}>+</button>
+      <button
+        class="btn icon"
+        title="Duplicate this cam"
+        aria-label="Duplicate cam"
+        onclick={() => camUi.addCam(cam)}><Icon name="copy" size={15} /></button
+      >
+      <button
+        class="btn icon"
+        title="Delete this cam"
+        aria-label="Delete cam"
+        onclick={() => camUi.removeCam()}><Icon name="trash" size={15} /></button
+      >
+    </div>
+    <label class="field">
+      <span>Name</span>
+      <input class="input" value={cam.name} onchange={(e) => camUi.set({ name: e.currentTarget.value })} />
+    </label>
+  {/if}
+  {#if !cams.length}
+    <p class="status"><Icon name="info" size={16} /> No cams yet.</p>
+    <button class="btn primary" onclick={() => camUi.addCam()}>New cam</button>
+  {:else if !cam.segments.length}
     <p class="status"><Icon name="info" size={16} /> Start with a motion program.</p>
   {:else if a.ok && !errors.length}
     <p class="status ok">
@@ -45,203 +79,218 @@
   {/each}
 </header>
 
-<section>
-  <h3>Follower</h3>
-  <label class="field">
-    <span>Follower type</span>
-    <select
-      class="select"
-      value={cam.follower}
-      onchange={(e) => camUi.set({ follower: e.currentTarget.value as FollowerType })}
-    >
-      {#each FOLLOWER_TYPES as f (f)}<option value={f}>{FOLLOWER_NAMES[f]}</option>{/each}
-    </select>
-  </label>
-  <div class="grid2">
-    <NumberField
-      label="Base circle radius"
-      unit={L}
-      value={cam.baseRadius}
-      oncommit={(v) => camUi.set({ baseRadius: v })}
-    />
-    {#if isRoller(cam.follower)}
+{#if cams.length}
+  <section>
+    <h3>Follower</h3>
+    <label class="field">
+      <span>Follower type</span>
+      <select
+        class="select"
+        value={cam.follower}
+        onchange={(e) => camUi.set({ follower: e.currentTarget.value as FollowerType })}
+      >
+        {#each FOLLOWER_TYPES as f (f)}<option value={f}>{FOLLOWER_NAMES[f]}</option>{/each}
+      </select>
+    </label>
+    <div class="grid2">
       <NumberField
-        label="Roller radius"
+        label="Base circle radius"
         unit={L}
-        value={cam.rollerRadius}
-        oncommit={(v) => camUi.set({ rollerRadius: Math.max(0, v) })}
-      />
-    {/if}
-    {#if !osc}
-      <NumberField label="Offset" unit={L} value={cam.offset} oncommit={(v) => camUi.set({ offset: v })} />
-    {:else}
-      <NumberField
-        label="Pivot distance"
-        unit={L}
-        value={cam.pivotDistance}
-        oncommit={(v) => camUi.set({ pivotDistance: v })}
+        value={cam.baseRadius}
+        oncommit={(v) => camUi.set({ baseRadius: v })}
       />
       {#if isRoller(cam.follower)}
         <NumberField
-          label="Arm length"
+          label="Roller radius"
           unit={L}
-          value={cam.armLength}
-          oncommit={(v) => camUi.set({ armLength: v })}
+          value={cam.rollerRadius}
+          oncommit={(v) => camUi.set({ rollerRadius: Math.max(0, v) })}
         />
       {/if}
-    {/if}
-  </div>
-  <div class="seg" role="radiogroup" aria-label="Cam rotation">
-    <button
-      role="radio"
-      aria-checked={cam.rotation === 'ccw'}
-      class:on={cam.rotation === 'ccw'}
-      onclick={() => camUi.set({ rotation: 'ccw' })}>Counterclockwise</button
-    >
-    <button
-      role="radio"
-      aria-checked={cam.rotation === 'cw'}
-      class:on={cam.rotation === 'cw'}
-      onclick={() => camUi.set({ rotation: 'cw' })}>Clockwise</button
-    >
-  </div>
-  <div class="grid2">
-    <NumberField
-      label="Speed"
-      unit="rpm"
-      value={cam.speed}
-      oncommit={(v) => camUi.set({ speed: Math.max(0, v) })}
-    />
-    <NumberField
-      label="Pressure angle limit"
-      unit="°"
-      value={cam.pressureLimit}
-      oncommit={(v) => camUi.set({ pressureLimit: Math.min(89, Math.max(1, v)) })}
-    />
-  </div>
-</section>
-
-<section>
-  <h3>
-    Motion program
-    <span class="total" class:bad={cam.segments.length > 0 && Math.abs(total - 360) > 1e-9}
-      >{Number(total.toFixed(3))}° of 360°</span
-    >
-  </h3>
-  {#if !cam.segments.length}
-    <button class="btn primary" onclick={() => camUi.start()}>Start from dwell, rise, dwell, return</button>
-  {/if}
-  <ol class="segments">
-    {#each cam.segments as s, i (s.id)}
-      <li>
-        <div class="line">
-          <strong>{s.id}</strong>
-          <select
-            class="select"
-            aria-label={`${s.id} type`}
-            value={s.type}
-            onchange={(e) => camUi.setSegment(s.id, { type: e.currentTarget.value as SegmentType })}
-          >
-            {#each SEGMENT_TYPES as t (t)}<option value={t}>{TYPE_NAMES[t]}</option>{/each}
-          </select>
-          <span class="tools">
-            <button
-              class="btn icon"
-              aria-label={`Move ${s.id} up`}
-              disabled={i === 0}
-              onclick={() => camUi.moveSegment(s.id, -1)}>↑</button
-            >
-            <button
-              class="btn icon"
-              aria-label={`Move ${s.id} down`}
-              disabled={i === cam.segments.length - 1}
-              onclick={() => camUi.moveSegment(s.id, 1)}>↓</button
-            >
-            <button class="btn icon" aria-label={`Delete ${s.id}`} onclick={() => camUi.removeSegment(s.id)}
-              ><Icon name="trash" size={15} /></button
-            >
-          </span>
-        </div>
-        <div class="grid2">
+      {#if !osc}
+        <NumberField label="Offset" unit={L} value={cam.offset} oncommit={(v) => camUi.set({ offset: v })} />
+      {:else}
+        <NumberField
+          label="Pivot distance"
+          unit={L}
+          value={cam.pivotDistance}
+          oncommit={(v) => camUi.set({ pivotDistance: v })}
+        />
+        {#if isRoller(cam.follower)}
           <NumberField
-            label={`${s.id} duration`}
-            unit="°"
-            value={s.duration}
-            oncommit={(v) => camUi.setSegment(s.id, { duration: Math.max(0, v) })}
+            label="Arm length"
+            unit={L}
+            value={cam.armLength}
+            oncommit={(v) => camUi.set({ armLength: v })}
           />
-          {#if s.type !== 'dwell'}
-            <NumberField
-              label={`${s.id} lift`}
-              unit={liftUnit}
-              value={s.lift}
-              oncommit={(v) => camUi.setSegment(s.id, { lift: Math.max(0, v) })}
-            />
-          {/if}
-        </div>
-        {#if s.type !== 'dwell'}
-          <select
-            class="select"
-            aria-label={`${s.id} motion law`}
-            value={s.law}
-            onchange={(e) => camUi.setSegment(s.id, { law: e.currentTarget.value as MotionLaw })}
-          >
-            {#each MOTION_LAWS as l (l)}<option value={l}>{LAW_NAMES[l]}</option>{/each}
-          </select>
         {/if}
-      </li>
-    {/each}
-  </ol>
-  <div class="add" role="group" aria-label="Add a segment">
-    <button class="btn outline" onclick={() => camUi.addSegment('rise')}>+ Rise</button>
-    <button class="btn outline" onclick={() => camUi.addSegment('dwell')}>+ Dwell</button>
-    <button class="btn outline" onclick={() => camUi.addSegment('return')}>+ Return</button>
-  </div>
-</section>
+      {/if}
+    </div>
+    <div class="seg" role="radiogroup" aria-label="Cam rotation">
+      <button
+        role="radio"
+        aria-checked={cam.rotation === 'ccw'}
+        class:on={cam.rotation === 'ccw'}
+        onclick={() => camUi.set({ rotation: 'ccw' })}>Counterclockwise</button
+      >
+      <button
+        role="radio"
+        aria-checked={cam.rotation === 'cw'}
+        class:on={cam.rotation === 'cw'}
+        onclick={() => camUi.set({ rotation: 'cw' })}>Clockwise</button
+      >
+    </div>
+    <div class="grid2">
+      <NumberField
+        label="Speed"
+        unit="rpm"
+        value={cam.speed}
+        oncommit={(v) => camUi.set({ speed: Math.max(0, v) })}
+      />
+      <NumberField
+        label="Pressure angle limit"
+        unit="°"
+        value={cam.pressureLimit}
+        oncommit={(v) => camUi.set({ pressureLimit: Math.min(89, Math.max(1, v)) })}
+      />
+    </div>
+  </section>
 
-<section>
-  <h3>Follower loads</h3>
-  <div class="grid2">
+  <section>
+    <h3>
+      Motion program
+      <span class="total" class:bad={cam.segments.length > 0 && Math.abs(total - 360) > 1e-9}
+        >{Number(total.toFixed(3))}° of 360°</span
+      >
+    </h3>
+    {#if !cam.segments.length}
+      <button class="btn primary" onclick={() => camUi.start()}>Start from dwell, rise, dwell, return</button>
+    {/if}
+    <ol class="segments">
+      {#each cam.segments as s, i (s.id)}
+        <li>
+          <div class="line">
+            <strong>{s.id}</strong>
+            <select
+              class="select"
+              aria-label={`${s.id} type`}
+              value={s.type}
+              onchange={(e) => camUi.setSegment(s.id, { type: e.currentTarget.value as SegmentType })}
+            >
+              {#each SEGMENT_TYPES as t (t)}<option value={t}>{TYPE_NAMES[t]}</option>{/each}
+            </select>
+            <span class="tools">
+              <button
+                class="btn icon"
+                aria-label={`Move ${s.id} up`}
+                disabled={i === 0}
+                onclick={() => camUi.moveSegment(s.id, -1)}>↑</button
+              >
+              <button
+                class="btn icon"
+                aria-label={`Move ${s.id} down`}
+                disabled={i === cam.segments.length - 1}
+                onclick={() => camUi.moveSegment(s.id, 1)}>↓</button
+              >
+              <button class="btn icon" aria-label={`Delete ${s.id}`} onclick={() => camUi.removeSegment(s.id)}
+                ><Icon name="trash" size={15} /></button
+              >
+            </span>
+          </div>
+          <div class="grid2">
+            <NumberField
+              label={`${s.id} duration`}
+              unit="°"
+              value={s.duration}
+              oncommit={(v) => camUi.setSegment(s.id, { duration: Math.max(0, v) })}
+            />
+            {#if s.type !== 'dwell'}
+              <NumberField
+                label={`${s.id} lift`}
+                unit={liftUnit}
+                value={s.lift}
+                oncommit={(v) => camUi.setSegment(s.id, { lift: Math.max(0, v) })}
+              />
+            {/if}
+          </div>
+          {#if s.type !== 'dwell'}
+            <select
+              class="select"
+              aria-label={`${s.id} motion law`}
+              value={s.law}
+              onchange={(e) => camUi.setSegment(s.id, { law: e.currentTarget.value as MotionLaw })}
+            >
+              {#each MOTION_LAWS as l (l)}<option value={l}>{LAW_NAMES[l]}</option>{/each}
+            </select>
+          {/if}
+        </li>
+      {/each}
+    </ol>
+    <div class="add" role="group" aria-label="Add a segment">
+      <button class="btn outline" onclick={() => camUi.addSegment('rise')}>+ Rise</button>
+      <button class="btn outline" onclick={() => camUi.addSegment('dwell')}>+ Dwell</button>
+      <button class="btn outline" onclick={() => camUi.addSegment('return')}>+ Return</button>
+    </div>
+  </section>
+
+  <section>
+    <h3>Follower loads</h3>
+    <div class="grid2">
+      <NumberField
+        label={osc ? 'Arm inertia' : 'Follower mass'}
+        unit={osc ? `${M}·${L}²` : M}
+        value={cam.mass}
+        oncommit={(v) => camUi.set({ mass: Math.max(0, v) })}
+      />
+      <NumberField
+        label="Spring rate"
+        unit={osc ? `${F}·${L}/rad` : `${F}/${L}`}
+        value={cam.springRate}
+        oncommit={(v) => camUi.set({ springRate: Math.max(0, v) })}
+      />
+      <NumberField
+        label="Spring preload"
+        unit={osc ? `${F}·${L}` : F}
+        value={cam.preload}
+        oncommit={(v) => camUi.set({ preload: v })}
+      />
+      <NumberField
+        label={osc ? 'External torque' : 'External load'}
+        unit={osc ? `${F}·${L}` : F}
+        value={cam.load}
+        oncommit={(v) => camUi.set({ load: v })}
+      />
+    </div>
+    <p class="muted small">
+      Loads press the follower onto the cam. The contact force must stay above zero, or the follower jumps off
+      at speed.
+    </p>
     <NumberField
-      label={osc ? 'Arm inertia' : 'Follower mass'}
-      unit={osc ? `${M}·${L}²` : M}
-      value={cam.mass}
-      oncommit={(v) => camUi.set({ mass: Math.max(0, v) })}
+      label="Analysis step"
+      unit="°"
+      value={cam.step}
+      oncommit={(v) => camUi.set({ step: Math.min(10, Math.max(0.05, v)) })}
     />
-    <NumberField
-      label="Spring rate"
-      unit={osc ? `${F}·${L}/rad` : `${F}/${L}`}
-      value={cam.springRate}
-      oncommit={(v) => camUi.set({ springRate: Math.max(0, v) })}
-    />
-    <NumberField
-      label="Spring preload"
-      unit={osc ? `${F}·${L}` : F}
-      value={cam.preload}
-      oncommit={(v) => camUi.set({ preload: v })}
-    />
-    <NumberField
-      label={osc ? 'External torque' : 'External load'}
-      unit={osc ? `${F}·${L}` : F}
-      value={cam.load}
-      oncommit={(v) => camUi.set({ load: v })}
-    />
-  </div>
-  <p class="muted small">
-    Loads press the follower onto the cam. The contact force must stay above zero, or the follower jumps off
-    at speed.
-  </p>
-  <NumberField
-    label="Analysis step"
-    unit="°"
-    value={cam.step}
-    oncommit={(v) => camUi.set({ step: Math.min(10, Math.max(0.05, v)) })}
-  />
-</section>
+  </section>
+{/if}
 
 <style>
   header h2 {
     margin: 0;
     font-size: var(--text-lg);
+  }
+
+  .picker {
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+    gap: 2px;
+    align-items: center;
+    margin-top: var(--space-2);
+  }
+
+  .picker .btn {
+    width: 30px;
+    height: 30px;
   }
 
   .status {

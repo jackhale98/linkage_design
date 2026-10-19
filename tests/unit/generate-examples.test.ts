@@ -8,6 +8,7 @@ import { syncMechanism } from '../../src/core/mechanism/model';
 import type { Sketch } from '../../src/core/sketch/types';
 import { barMassProperties } from '../../src/core/forces/solve';
 import { newLoad, type Load } from '../../src/core/forces/types';
+import { emptyCam } from '../../src/core/cam/types';
 
 const ctx = { angleScale: Math.PI / 180 };
 const DATE = new Date('2026-10-19T12:00:00.000Z');
@@ -274,21 +275,23 @@ function cam() {
     law: 'poly_345' as const,
     extras: {},
   });
-  p.cam = {
-    ...p.cam,
-    baseRadius: 40,
-    rollerRadius: 10,
-    speed: 300,
-    mass: 0.5,
-    springRate: 1.2,
-    preload: 30,
-    segments: [
-      seg('S1', 'rise', 100, 25),
-      seg('S2', 'dwell', 80),
-      seg('S3', 'return', 100, 25),
-      seg('S4', 'dwell', 80),
-    ],
-  };
+  p.cams = [
+    {
+      ...emptyCam('C1', 'Dwell-rise-dwell'),
+      baseRadius: 40,
+      rollerRadius: 10,
+      speed: 300,
+      mass: 0.5,
+      springRate: 1.2,
+      preload: 30,
+      segments: [
+        seg('S1', 'rise', 100, 25),
+        seg('S2', 'dwell', 80),
+        seg('S3', 'return', 100, 25),
+        seg('S4', 'dwell', 80),
+      ],
+    },
+  ];
   writeFileSync('src/examples/cam.csv', serializeProject(p));
 }
 

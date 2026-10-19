@@ -20,8 +20,8 @@ import { readMechanism, writeMechanism, MECHANISM_SECTIONS } from '../mechanism/
 import { syncMechanism } from '../mechanism/model';
 import { emptyMechanism, type MechanismData } from '../mechanism/types';
 import { readForces, writeForces, FORCES_SECTIONS } from '../forces/io';
-import { readCam, writeCam, CAM_SECTIONS } from '../cam/io';
-import { emptyCam, isOscillating, type CamData } from '../cam/types';
+import { readCams, writeCams, CAM_SECTIONS } from '../cam/io';
+import { isOscillating, type CamData } from '../cam/types';
 import { emptyForces, type ForcesData } from '../forces/types';
 
 export const FILE_APP = 'LinkageDesign';
@@ -52,7 +52,8 @@ export interface Project {
   sketch: Sketch;
   mechanism: MechanismData;
   forces: ForcesData;
-  cam: CamData;
+  /** Cams designed in the Cam workspace, which cam joints in the mechanism can mount. */
+  cams: CamData[];
   /** Sections not understood by this version, kept for round trips. */
   preserved: RawSection[];
 }
@@ -82,7 +83,7 @@ export function newProject(now = new Date()): Project {
     sketch: emptySketch(),
     mechanism: emptyMechanism(),
     forces: emptyForces(),
-    cam: emptyCam(),
+    cams: [],
     preserved: [],
   };
 }
@@ -149,18 +150,19 @@ export function convertUnits(
   }
   p.forces.input *= d.type === 'linear' ? kf : kf * kl;
   // Cam: lengths scale; oscillating lifts are angles (degrees) and its loads are torques.
-  const c = p.cam;
-  const osc = isOscillating(c.follower);
-  c.baseRadius *= kl;
-  c.rollerRadius *= kl;
-  c.offset *= kl;
-  c.pivotDistance *= kl;
-  c.armLength *= kl;
-  if (!osc) for (const sg of c.segments) sg.lift *= kl;
-  c.mass *= osc ? km * kl * kl : km;
-  c.springRate *= osc ? kf * kl : kf / kl;
-  c.preload *= osc ? kf * kl : kf;
-  c.load *= osc ? kf * kl : kf;
+  for (const c of p.cams) {
+    const osc = isOscillating(c.follower);
+    c.baseRadius *= kl;
+    c.rollerRadius *= kl;
+    c.offset *= kl;
+    c.pivotDistance *= kl;
+    c.armLength *= kl;
+    if (!osc) for (const sg of c.segments) sg.lift *= kl;
+    c.mass *= osc ? km * kl * kl : km;
+    c.springRate *= osc ? kf * kl : kf / kl;
+    c.preload *= osc ? kf * kl : kf;
+    c.load *= osc ? kf * kl : kf;
+  }
   p.meta.length_unit = length;
   p.meta.angle_unit = angle;
   p.meta.force_unit = force;
@@ -174,7 +176,7 @@ export function serializeProject(p: Project): string {
     ...writeSketch(p.sketch),
     ...writeMechanism(p.mechanism),
     ...writeForces(p.forces),
-    ...writeCam(p.cam),
+    ...writeCams(p.cams),
   ];
   for (const s of p.preserved) {
     sections.push({ name: s.name, header: s.header, rows: s.records.map((r) => r.cells) });
@@ -259,7 +261,7 @@ export function parseProject(text: string): ImportResult {
   const sketch = readSketch(byName, doc.delimiter, diag);
   const mechanism = readMechanism(byName, sketch, doc.delimiter, diag);
   const forces = readForces(byName, sketch, mechanism, doc.delimiter, diag);
-  const cam = readCam(byName, doc.delimiter, diag);
+  const cams = readCams(byName, doc.delimiter, diag);
 
   const preserved = doc.sections.filter((s) => !KNOWN_SECTIONS.has(s.name));
   for (const s of preserved) {
@@ -271,7 +273,7 @@ export function parseProject(text: string): ImportResult {
 
   if (diag.hasErrors) return { ok: false, errors: diag.errors, warnings: diag.warnings };
   syncMechanism(sketch, mechanism);
-  return { ok: true, project: { meta, sketch, mechanism, forces, cam, preserved }, warnings: diag.warnings };
+  return { ok: true, project: { meta, sketch, mechanism, forces, cams, preserved }, warnings: diag.warnings };
 }
 
 /** File name for exporting a project, derived from its name. */

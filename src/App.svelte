@@ -349,13 +349,9 @@
     >
       {#snippet content({ view, size })}
         {#if camView}
-          <CamLayer
-            {view}
-            {size}
-            cam={store.project.cam}
-            analysis={camUi.analysis}
-            index={camUi.sampleIndex}
-          />
+          {#if camUi.cam}
+            <CamLayer {view} {size} cam={camUi.cam} analysis={camUi.analysis} index={camUi.sampleIndex} />
+          {/if}
         {:else if mechView && pose && motionUi.result.model.bodies.length}
           <MechanismLayer
             {view}
@@ -427,9 +423,9 @@
         mechanismReady={mechView && !!motionUi.result.data}
         hasLinks={mechView && motionUi.result.model.bodies.length > 0}
         onexample={() => loadExample()}
-        camEmpty={store.project.cam.segments.length === 0}
+        camEmpty={store.project.cams.length === 0}
         oncamstart={() => {
-          camUi.start();
+          camUi.addCam();
           void fitSoon();
         }}
         oncamexample={() => loadExample('cam.csv')}
