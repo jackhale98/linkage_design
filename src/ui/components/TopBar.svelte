@@ -4,7 +4,17 @@
   import { store } from '../state/project.svelte';
   import { ui, WORKSPACES } from '../state/ui.svelte';
 
-  let { onNew, onOpen, onSave }: { onNew: () => void; onOpen: () => void; onSave: () => void } = $props();
+  import { EXAMPLES } from '../../examples';
+
+  let {
+    onNew,
+    onOpen,
+    onSave,
+    onExample,
+  }: { onNew: () => void; onOpen: () => void; onSave: () => void; onExample: (file: string) => void } =
+    $props();
+
+  let menu: HTMLDetailsElement;
 
   const mod = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
   const themeIcon = $derived(ui.theme === 'light' ? 'sun' : ui.theme === 'dark' ? 'moon' : 'system');
@@ -69,6 +79,26 @@
     <button class="btn icon" title="New project" aria-label="New project" onclick={onNew}>
       <Icon name="new" />
     </button>
+    <details class="menu" bind:this={menu}>
+      <summary class="btn" title="Example mechanisms">
+        <Icon name="examples" /><span class="label">Examples</span>
+      </summary>
+      <div class="menu-list" role="menu">
+        {#each EXAMPLES as ex (ex.file)}
+          <button
+            role="menuitem"
+            class="menu-item"
+            onclick={() => {
+              menu.open = false;
+              onExample(ex.file);
+            }}
+          >
+            <strong>{ex.name}</strong>
+            <span class="muted">{ex.description}</span>
+          </button>
+        {/each}
+      </div>
+    </details>
     <button class="btn" title={`Open project CSV (${mod}O)`} onclick={onOpen}>
       <Icon name="open" /><span class="label">Open</span>
     </button>
@@ -203,6 +233,56 @@
   .actions a {
     color: inherit;
     text-decoration: none;
+  }
+
+  .menu {
+    position: relative;
+  }
+
+  .menu summary {
+    list-style: none;
+  }
+
+  .menu summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .menu[open] summary {
+    background: var(--surface-active);
+  }
+
+  .menu-list {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 40;
+    display: grid;
+    width: 300px;
+    padding: var(--space-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .menu-item {
+    display: grid;
+    gap: 2px;
+    padding: var(--space-2) var(--space-3);
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .menu-item:hover,
+  .menu-item:focus-visible {
+    background: var(--surface-hover);
+  }
+
+  .menu-item span {
+    font-size: var(--text-sm);
   }
 
   .sep {

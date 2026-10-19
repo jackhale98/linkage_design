@@ -5,18 +5,19 @@
     workspace,
     sketchEmpty,
     hint,
+    mechanismReady,
+    hasLinks,
     onexample,
-  }: { workspace: Workspace; sketchEmpty: boolean; hint: string; onexample: () => void } = $props();
+  }: {
+    workspace: Workspace;
+    sketchEmpty: boolean;
+    hint: string;
+    mechanismReady: boolean;
+    hasLinks: boolean;
+    onexample: () => void;
+  } = $props();
 
-  const INTRO: Record<Exclude<Workspace, 'sketch'>, { title: string; text: string }> = {
-    mechanism: {
-      title: 'Mechanism',
-      text: 'Group sketch geometry into rigid links, mark the ground, set joint types and pick the driver.',
-    },
-    motion: {
-      title: 'Motion',
-      text: 'Sweep the driver to animate the mechanism, trace coupler curves, and plot positions, velocities, accelerations and transmission angles.',
-    },
+  const LATER: Record<'forces' | 'cam', { title: string; text: string }> = {
     forces: {
       title: 'Forces',
       text: 'Apply forces, torques, gravity and springs to get the reaction at every joint and the required input torque or force.',
@@ -44,15 +45,34 @@
   {:else if hint}
     <div class="hint" role="status">{hint}</div>
   {/if}
+{:else if workspace === 'mechanism' || workspace === 'motion'}
+  {#if !hasLinks}
+    <div class="card">
+      <h2>{workspace === 'mechanism' ? 'Mechanism' : 'Motion'}</h2>
+      <p>
+        Every line you draw in the Sketch becomes a link; fixed points and construction lines touching them
+        are ground. Draw a linkage first, or start from an example.
+      </p>
+      <button class="btn outline" onclick={onexample}>Load the four-bar example</button>
+    </div>
+  {:else if workspace === 'mechanism'}
+    <div class="hint" role="status">
+      Click a link to edit it · shift-click several links to merge them into one rigid link
+    </div>
+  {:else if !mechanismReady}
+    <div class="hint" role="status">Set a driver in the panel on the right to animate the mechanism</div>
+  {/if}
 {:else}
-  {@const intro = INTRO[workspace]}
+  {@const intro = LATER[workspace]}
   <div class="card">
     <div class="head">
       <h2>{intro.title}</h2>
       <span class="tag">In development</span>
     </div>
     <p>{intro.text}</p>
-    <p class="muted small">The sketch is shown read-only here. Edit it in the Sketch workspace.</p>
+    {#if workspace === 'forces'}
+      <p class="muted small">The mechanism and its motion are shown here; force analysis comes next.</p>
+    {/if}
   </div>
 {/if}
 
@@ -90,6 +110,10 @@
     margin: var(--space-2) 0 0;
   }
 
+  .card .btn {
+    margin-top: var(--space-3);
+  }
+
   .small {
     font-size: var(--text-sm);
   }
@@ -103,6 +127,10 @@
     list-style: none;
     color: var(--text-muted);
     font-size: var(--text-sm);
+  }
+
+  .keys + .btn {
+    margin-top: 0;
   }
 
   .hint {

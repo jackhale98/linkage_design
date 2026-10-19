@@ -1,0 +1,62 @@
+﻿LinkageDesign,1
+# Linkage Design project file - https://github.com/jackhale98/linkage_design
+
+[project]
+key,value
+name,Hydraulic boom
+length_unit,mm
+force_unit,N
+angle_unit,deg
+notes,"A boom pivoted at O, raised by a hydraulic cylinder from G to M. The cylinder length is the driver."
+created,2026-10-19T12:00:00.000Z
+modified,2026-10-19T12:00:00.000Z
+
+# Sketch points. fixed = anchored in place.
+[points]
+id,x,y,fixed,label
+P1,0,0,1,O
+P2,398.23410871,162.20232631,0,M
+P3,898.342059183,365.898270977,0,Tip
+P4,300,-100,1,G
+
+# Lines between points. construction = helper geometry.
+[lines]
+id,p1,p2,construction
+L1,P1,P2,0
+L2,P2,P3,0
+L3,P4,P2,1
+
+# Constraints and dimensions. Values use the project units; angles are counterclockwise from line a to line b.
+[constraints]
+id,type,a,b,c,value,reference,label_dx,label_dy
+C1,parallel,L1,L2,,,0,,
+C2,distance,L1,,,430,0,-20,30
+C3,distance,L2,,,540,0,-10,30
+C4,distance,L3,,,280,0,30,-10
+
+# Rigid bodies (links), each a group of sketch lines. ground = fixed to the frame.
+[bodies]
+id,name,lines,ground,color
+B1,Boom,L1 L2,0,#2a78d6
+
+# Joints, derived from the sketch. type may be changed between pin_in_slot and slider.
+[joints]
+id,type,point,line,body_a,body_b
+J1,revolute,P1,,ground,B1
+
+# Driver: rotary (angle of a line, from +x or from line_ref) or linear (distance between two points). Speed in rpm or length/s.
+[driver]
+key,value
+type,linear
+line,
+line_ref,
+point_a,P4
+point_b,P2
+start,230
+end,420
+steps,100
+speed,50
+
+[motion]
+key,value
+trace,P3

@@ -1,6 +1,6 @@
 # Linkage Design — Design Document
 
-Status: **approved** · Phases 0–1 complete · Last updated: 2026-10-19
+Status: **approved** · Phases 0–2 complete · Last updated: 2026-10-19
 
 A free, open source, browser-based tool for designing planar mechanisms,
 linkages and cams. It runs as a static site on GitHub Pages (this
@@ -121,7 +121,21 @@ Sketch ──► Mechanism ──► Motion ──► Forces          Cam (indep
    SVAJ curves, pressure angle, radius of curvature, undercut checks,
    follower spring and jump checks, and profile exports.
 
-### Mapping a sketch to a mechanism
+### Mapping a sketch to a mechanism (as built in Phase 2)
+
+- **Bodies:** every non-construction line starts as its own link. Links can be merged into rigid bodies, such as a coupler plate, and split again.
+- **Ground** is:
+  - the fixed points;
+  - construction lines connected to them (a drawn ground line between pivots);
+  - bodies marked ground;
+  - bodies touching two or more ground points.
+- **Joints are derived, not drawn:**
+  - a revolute where bodies share a point;
+  - a pin-in-slot where a `point_on_line` constraint links a point of one body to a line of another, which can be switched to a slider block.
+- **The driver** is stored as a rotary input (a line's angle, from +x or from another line) or a linear actuator (the distance between two points). Any angle or distance dimension in the sketch can be turned into a driver with one click.
+- **Analysis:** the sweep runs from the drawn pose, forwards and backwards, and locates toggle limits by bisection. Results are checked against the closed-form four-bar (Norton) and exact slider-crank equations.
+
+### Mapping a sketch to a mechanism (original plan)
 
 - At the moment you enter Motion, each body's sketch geometry is frozen into
   body-local coordinates. Dimensions inside one body become rigid geometry.

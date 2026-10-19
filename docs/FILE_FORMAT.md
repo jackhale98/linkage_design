@@ -1,6 +1,6 @@
 # Project file format
 
-A Linkage Design project is a single `.csv` file. It opens directly in Excel, Google Sheets or a text editor. This page describes the format as of **format version 1** (the sketch). Mechanism, force and cam sections will be added in later versions; older files will keep loading.
+A Linkage Design project is a single `.csv` file. It opens directly in Excel, Google Sheets or a text editor. This page describes the format as of **format version 1**: the sketch and the mechanism. Force and cam sections will be added in later versions; older files will keep loading.
 
 ## Layout
 
@@ -116,6 +116,71 @@ Relations that don't take a value ignore one if present, with a warning.
 
 When a file is opened, geometry is shown exactly as stored. If the stored positions don't satisfy the constraints, or constraints conflict or duplicate each other, the sketch is marked **over-defined** and the offending constraints are listed in **Messages**.
 
+### `[bodies]`
+
+Rigid bodies (links). Each is a group of sketch lines that move together.
+
+| Column | Required | Meaning |
+|---|---|---|
+| `id` | yes | Unique ID, e.g. `B1` |
+| `name` | | Display name, e.g. `Crank` |
+| `lines` | | Space-separated line IDs |
+| `ground` | | Fixed to the frame |
+| `color` | | Hex colour, e.g. `#2a78d6` |
+
+When a project is opened or edited, the bodies are synced with the sketch:
+
+- **Unassigned lines:** every non-construction line not in a body becomes its own link.
+- **Stale references:** missing lines are dropped, and so are bodies left empty.
+- **Ground** is:
+  - every fixed point;
+  - every construction line connected, through other construction lines, to a fixed point (a drawn "ground line" between pivots);
+  - every body marked `ground`, and every body touching two or more ground points.
+
+### `[joints]`
+
+Joints are **derived from the sketch**, and this section records them so they keep stable IDs:
+
+- a **revolute** wherever two bodies, or a body and ground, share a point;
+- a **pin-in-slot** wherever a `point_on_line` constraint ties a point of one body to a line of another.
+
+| Column | Meaning |
+|---|---|
+| `id` | Stable ID, e.g. `J3` |
+| `type` | `revolute`, `pin_in_slot`, or `slider` (a pin-in-slot whose block can't rotate). Only the pin-in-slot / slider choice is editable. |
+| `point` | The pin point |
+| `line` | The slot line (slots only) |
+| `body_a`, `body_b` | Joined bodies (`ground` for the frame); for slots, `body_a` carries the line |
+
+### `[driver]` (key, value)
+
+| Key | Meaning |
+|---|---|
+| `type` | `none`, `rotary` or `linear` |
+| `line` | Rotary: the line whose angle is the input |
+| `line_ref` | Rotary: measure the angle from this line (blank = from the +x axis) |
+| `point_a`, `point_b` | Linear: the actuator's end points. A line between them is the actuator and belongs to no body. |
+| `start`, `end` | Sweep range in project units (blank = a full turn, or ±20% of the actuator length) |
+| `steps` | Number of steps (default 360) |
+| `speed` | rpm (rotary) or length units per second (linear) |
+
+### `[motion]` (key, value)
+
+| Key | Meaning |
+|---|---|
+| `trace` | Space-separated IDs of points whose paths are drawn |
+
 ## Results exports
 
-Analysis results (from later phases) export as separate, flat CSV files with one header row and units in the column names, e.g. `P3_vx [mm/s]`. They are meant for Excel, pandas or MATLAB, not for re-opening in the app.
+Analysis results export as separate, flat CSV files with one header row and units in the column names. They are meant for Excel, pandas or MATLAB, not for re-opening in the app.
+
+**Kinematics** (Motion → Results → Kinematics CSV): one row per sweep step.
+
+| Column group | Contents |
+|---|---|
+| Driver | `input [deg]` (or the length unit), `time [s]` |
+| Each moving point | x, y, speed, vx, vy, acceleration, ax, ay |
+| Each link | angle, angular velocity, angular acceleration |
+| Each pin between two links | Joint angle (the transmission angle where it applies) |
+
+Example column names: `P3_x [mm]`, `P3_speed [mm/s]`, `Rocker_angular_velocity [deg/s]`. Rates assume the driver turns (or extends) at the set constant speed.

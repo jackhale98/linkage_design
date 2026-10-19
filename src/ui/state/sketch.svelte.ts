@@ -3,6 +3,7 @@
 // they are undoable, and through core/sketch/edit so they stay solvable.
 
 import { angleScale } from '../../core/model/project';
+import { syncMechanism } from '../../core/mechanism/model';
 import { CONSTRAINT_DEFS, isDimension, refKinds } from '../../core/sketch/constraints';
 import * as edit from '../../core/sketch/edit';
 import { analyze, type SketchAnalysis, type SolverContext } from '../../core/sketch/solver';
@@ -92,6 +93,7 @@ class SketchUi {
       }
       if (typeof r === 'object' && r.ok) notes = r.notes;
       p.sketch = sk;
+      syncMechanism(p.sketch, p.mechanism); // bodies and joints follow the sketch
       return true;
     });
     if (reason) toasts.show(reason, 'warning');

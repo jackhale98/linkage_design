@@ -2,6 +2,8 @@
   import Icon, { type IconName } from './Icon.svelte';
   import { formatDiagnostic } from '../../core/csv/diagnostics';
   import SketchTables from './SketchTables.svelte';
+  import Plots from './Plots.svelte';
+  import Results from './Results.svelte';
   import { CONSTRAINT_DEFS } from '../../core/sketch/constraints';
   import { store } from '../state/project.svelte';
   import { sketchUi } from '../state/sketch.svelte';
@@ -13,12 +15,6 @@
     { id: 'results', label: 'Results', icon: 'results' },
     { id: 'messages', label: 'Messages', icon: 'messages' },
   ];
-
-  const EMPTY: Record<'plots' | 'results', string> = {
-    plots:
-      'Plots of position, velocity, acceleration and forces against the driver input will appear here once a mechanism moves.',
-    results: 'Summaries such as range of motion, Grashof type, peak forces and cam checks will appear here.',
-  };
 
   const report = $derived(store.lastImport);
 
@@ -152,7 +148,7 @@
           </ul>
         {/if}
       {:else}
-        <p class="empty">{EMPTY[ui.dockTab as 'plots' | 'results']}</p>
+        {#if ui.dockTab === 'plots'}<Plots />{:else}<Results />{/if}
       {/if}
     </div>
   {/if}

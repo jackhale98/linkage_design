@@ -34,6 +34,8 @@
     zoomOut: ['c:11,11,6.5', 'M20 20l-4.4-4.4', 'M8 11h6'],
     fit: ['M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5'],
     play: ['M7 4.5v15l12.5-7.5z'],
+    pause: ['M8 5v14M16 5v14'],
+    download: ['M12 4v11', 'M7 10l5 5 5-5', 'M5 20h14'],
     chevronDown: ['M6 9l6 6 6-6'],
     chevronUp: ['M6 15l6-6 6 6'],
     close: ['M6 6l12 12M18 6 6 18'],
@@ -46,6 +48,7 @@
     table: ['M3.5 4.5h17v15h-17z', 'M3.5 9.5h17M3.5 14.5h17M10 4.5v15'],
     results: ['M6 20V11M12 20V5M18 20v-6'],
     messages: ['M4 5h16v11H9l-4 3.5V16H4z'],
+    examples: ['M4 5h7v6H4zM13 5h7v6h-7zM4 13h7v6H4zM13 13h7v6h-7z'],
     magnet: ['M6 4v7a6 6 0 0 0 12 0V4', 'M6 8h4M14 8h4'],
     trash: ['M4 7h16', 'M9 7V4h6v3', 'M6 7l1 13h10l1-13'],
   } as const;

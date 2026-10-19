@@ -98,7 +98,7 @@ export function readSketch(
 
   if (ls) {
     for (const r of readTable(ls, LINES_SPEC, delimiter, diag)) {
-      const where = { line: r.line, section: 'lines' };
+      const where = { line: r.srcLine, section: 'lines' };
       if (r.id && pointIds.has(r.id)) diag.error(`ID "${r.id}" is already used by a point`, where);
       for (const key of ['p1', 'p2'] as const) {
         const v = r[key];
@@ -118,7 +118,7 @@ export function readSketch(
 
   if (cs) {
     for (const r of readTable(cs, CONSTRAINTS_SPEC, delimiter, diag)) {
-      const where = { line: r.line, section: 'constraints' };
+      const where = { line: r.srcLine, section: 'constraints' };
       if (r.id && entityIds.has(r.id)) diag.error(`ID "${r.id}" is already used by a point or line`, where);
       const refs = [r.a, r.b, r.c].filter((x): x is string => !!x);
       const type = r.type;

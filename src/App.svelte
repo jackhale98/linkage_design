@@ -11,7 +11,12 @@
   import SketchStatus from './ui/components/SketchStatus.svelte';
   import DimensionEditor from './ui/components/DimensionEditor.svelte';
   import Icon from './ui/components/Icon.svelte';
-  import fourBarExample from './examples/four-bar.csv?raw';
+  import MechanismLayer from './ui/components/MechanismLayer.svelte';
+  import MechanismStatus from './ui/components/MechanismStatus.svelte';
+  import MotionBar from './ui/components/MotionBar.svelte';
+  import { EXAMPLES } from './examples';
+  import { motionUi } from './ui/state/motion.svelte';
+  import { evaluate } from './core/mechanism/analysis';
   import { newProject, projectFileName } from './core/model/project';
   import { applicableConstraints } from './core/sketch/edit';
   import type { ConstraintType } from './core/sketch/types';
@@ -25,6 +30,39 @@
 
   let viewport: Viewport;
   const editable = $derived(ui.workspace === 'sketch');
+  /** Workspaces that show the mechanism (links and joints) rather than the sketch. */
+  const mechView = $derived(
+    ui.workspace === 'mechanism' || ui.workspace === 'motion' || ui.workspace === 'forces',
+  );
+  const animated = $derived(ui.workspace === 'motion' || ui.workspace === 'forces');
+  const pose = $derived(mechView ? motionUi.poseAt(animated ? motionUi.frame : null) : null);
+  const pointLabels = $derived(
+    new Map(
+      store.project.sketch.points.filter((p) => p.label).map((p) => [p.id, p.label] as [string, string]),
+    ),
+  );
+  const traces = $derived(animated && motionUi.showTraces ? motionUi.tracePaths() : []);
+  const vectors = $derived.by(() => {
+    // Read the motion result only where it's shown, so sketching doesn't re-run the sweep.
+    if (!animated || !motionUi.showVelocity) return [];
+    const data = motionUi.result.data;
+    const f = motionUi.frame;
+    if (!data || !f) return [];
+    const pts = store.project.mechanism.motion.trace;
+    const vs = pts.map((p) => [p, evaluate(data, f, `p:${p}:vx`), evaluate(data, f, `p:${p}:vy`)] as const);
+    // Scale so the fastest point in the whole sweep draws about 80 px long.
+    const vmax = Math.max(
+      1e-12,
+      ...pts.flatMap((p) => motionUi.frames.map((fr) => evaluate(data, fr, `p:${p}:v`))),
+    );
+    return vs
+      .filter(([, vx, vy]) => Number.isFinite(vx) && Number.isFinite(vy))
+      .map(([p, vx, vy]) => ({
+        point: p,
+        v: [(vx / vmax) * 80, (vy / vmax) * 80] as [number, number],
+        color: 'var(--text)',
+      }));
+  });
   const drawing = $derived(['point', 'line', 'dimension'].includes(sketchUi.tool));
   let failedImport = $state<ImportReport | null>(null);
   let dragDepth = $state(0);
@@ -63,6 +101,19 @@
     if (b && !b.closest('dialog')) b.blur();
   }
 
+  // Refit when the view switches between the sketch and the mechanism (traces can be larger).
+  let lastView: string | null = null;
+  $effect(() => {
+    const kind = mechView ? 'mech' : 'sketch';
+    if (lastView !== null && lastView !== kind) void fitSoon();
+    lastView = kind;
+  });
+
+  // Stop playback when leaving the animated workspaces.
+  $effect(() => {
+    if (!animated) motionUi.pause();
+  });
+
   // Drawing tools only exist in the Sketch workspace.
   $effect(() => {
     if (!editable && sketchUi.tool !== 'select' && sketchUi.tool !== 'pan') sketchUi.setTool('select');
@@ -81,17 +132,26 @@
 
   function onCanvas(ev: CanvasPointer): PointerResult {
     if (editable) return sketchUi.pointer(ev);
+    if (mechView && pose && sketchUi.tool !== 'pan') return motionUi.pointer(ev, pose);
     return ev.type === 'down' ? 'pan' : undefined;
   }
 
-  function loadExample() {
-    store.importText('four-bar.csv', fourBarExample);
+  function extents() {
+    return mechView ? (motionUi.extents() ?? sketchUi.extents()) : sketchUi.extents();
+  }
+
+  function loadExample(file = 'four-bar.csv') {
+    const ex = EXAMPLES.find((e) => e.file === file)!;
+    store.importText(ex.file, ex.text);
     sketchUi.selection = [];
+    motionUi.selection = [];
+    motionUi.plotKeys = [];
+    motionUi.plotSlots = {};
+    motionUi.phase = 0;
     void fitSoon();
-    toasts.show('Loaded the four-bar example. Double-click a dimension to change it.', 'success', {
-      label: 'Undo',
-      run: () => store.undo(),
-    });
+    const hint =
+      ui.workspace === 'sketch' ? 'Double-click a dimension to change it, or open Motion to animate.' : '';
+    toasts.show(`Loaded “${ex.name}”. ${hint}`, 'success', { label: 'Undo', run: () => store.undo() });
   }
 
   function newFile() {
@@ -189,8 +249,12 @@
     } else if (mod && key === 'a' && editable) {
       e.preventDefault();
       sketchUi.selectAll();
+    } else if (e.key === ' ' && animated) {
+      e.preventDefault();
+      motionUi.toggle();
     } else if (e.key === 'Escape') {
-      if (sketchUi.escape()) e.preventDefault();
+      if (!editable) motionUi.selection = [];
+      else if (sketchUi.escape()) e.preventDefault();
     } else if ((e.key === 'Delete' || e.key === 'Backspace') && editable) {
       e.preventDefault();
       sketchUi.deleteSelection();
@@ -237,7 +301,7 @@
 />
 
 <div class="app" class:inspector-open={ui.inspectorOpen}>
-  <div class="top"><TopBar onNew={newFile} onOpen={open} onSave={save} /></div>
+  <div class="top"><TopBar onNew={newFile} onOpen={open} onSave={save} onExample={loadExample} /></div>
   <div class="rail"><ToolRail {editable} /></div>
   <main class="canvas">
     <Viewport
@@ -246,23 +310,38 @@
       panMode={sketchUi.tool === 'pan'}
       cursor={editable && drawing ? 'crosshair' : 'default'}
       onpointer={onCanvas}
-      extents={() => sketchUi.extents()}
+      {extents}
+      spacePan={!animated}
     >
       {#snippet content({ view, size })}
-        <SketchLayer
-          {view}
-          {size}
-          sketch={store.project.sketch}
-          analysis={sketchUi.analysis}
-          angleUnit={store.project.meta.angle_unit}
-          angleScale={sketchUi.ctx.angleScale}
-          selection={editable ? sketchUi.selection : []}
-          hover={editable ? sketchUi.hover : null}
-          pending={sketchUi.pending}
-          draft={editable && sketchUi.tool === 'line' ? sketchUi.draft : null}
-          cursor={editable && sketchUi.tool === 'point' ? sketchUi.cursor : null}
-          editing={sketchUi.editing}
-        />
+        {#if mechView && pose && motionUi.result.model.bodies.length}
+          <MechanismLayer
+            {view}
+            {size}
+            model={motionUi.result.model}
+            {pose}
+            labels={pointLabels}
+            selection={motionUi.selection}
+            hover={motionUi.hover}
+            {traces}
+            {vectors}
+          />
+        {:else}
+          <SketchLayer
+            {view}
+            {size}
+            sketch={store.project.sketch}
+            analysis={sketchUi.analysis}
+            angleUnit={store.project.meta.angle_unit}
+            angleScale={sketchUi.ctx.angleScale}
+            selection={editable ? sketchUi.selection : []}
+            hover={editable ? sketchUi.hover : null}
+            pending={sketchUi.pending}
+            draft={editable && sketchUi.tool === 'line' ? sketchUi.draft : null}
+            cursor={editable && sketchUi.tool === 'point' ? sketchUi.cursor : null}
+            editing={sketchUi.editing}
+          />
+        {/if}
       {/snippet}
       {#snippet overlay({ view, size })}
         {#if sketchUi.editing && editable}
@@ -272,7 +351,10 @@
         {/if}
       {/snippet}
       {#snippet badge()}
-        <SketchStatus />
+        {#if mechView}<MechanismStatus />{:else}<SketchStatus />{/if}
+      {/snippet}
+      {#snippet bottom()}
+        {#if animated}<MotionBar />{/if}
       {/snippet}
       {#snippet hudRight()}
         {#if editable}
@@ -292,7 +374,9 @@
         workspace={ui.workspace}
         sketchEmpty={store.project.sketch.points.length === 0}
         hint={sketchUi.hint}
-        onexample={loadExample}
+        mechanismReady={mechView && !!motionUi.result.data}
+        hasLinks={mechView && motionUi.result.model.bodies.length > 0}
+        onexample={() => loadExample()}
       />
     </Viewport>
   </main>

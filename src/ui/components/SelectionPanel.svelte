@@ -6,6 +6,9 @@
   import Icon from './Icon.svelte';
   import { store } from '../state/project.svelte';
   import { RELATION_KEYS, sketchUi } from '../state/sketch.svelte';
+  import { motionUi } from '../state/motion.svelte';
+  import { driverFromDimension } from '../../core/mechanism/edit';
+  import { ui } from '../state/ui.svelte';
 
   const sketch = $derived(store.project.sketch);
   const meta = $derived(store.project.meta);
@@ -147,6 +150,17 @@
       />
       Reference (measured, doesn't drive geometry)
     </label>
+    {#if driverFromDimension(sketch, constraint)}
+      <button
+        class="btn outline"
+        onclick={() => {
+          if (motionUi.useDimensionAsDriver(constraint.id)) ui.workspace = 'motion';
+        }}
+        title="Animate the mechanism by varying this dimension"
+      >
+        <Icon name="driver" /> Use as driver
+      </button>
+    {/if}
   </section>
 {/if}
 

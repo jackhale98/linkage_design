@@ -1,11 +1,15 @@
 <script lang="ts">
   import ProjectPanel from './ProjectPanel.svelte';
   import SelectionPanel from './SelectionPanel.svelte';
+  import MechanismPanel from './MechanismPanel.svelte';
   import { sketchUi } from '../state/sketch.svelte';
+  import { ui } from '../state/ui.svelte';
 </script>
 
 <aside class="inspector" aria-label="Properties">
-  {#if sketchUi.selection.length}
+  {#if ui.workspace === 'mechanism' || ui.workspace === 'motion'}
+    <MechanismPanel mode={ui.workspace} />
+  {:else if ui.workspace === 'sketch' && sketchUi.selection.length}
     <SelectionPanel />
   {:else}
     <header>

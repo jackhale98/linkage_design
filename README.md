@@ -12,15 +12,20 @@ It runs entirely in the browser as a static site on GitHub Pages. Nothing is upl
 
 ## Status
 
-Phases 0 and 1 are complete:
+Phases 0–2 are complete:
 
-- **Sketching:** points and lines with snapping and horizontal/vertical inference; dimensions (length, distance, angle) edited right on the canvas, with expressions like `=2*25+10`.
-- **Constraints:** horizontal, vertical, parallel, perpendicular, coincident, point on line, midpoint, equal length.
-- **Constraint status:** live solving while you drag. Colours show under-, fully and over-defined geometry, and conflicts are explained.
-- **Editing:** editable tables, undo/redo and autosave.
-- **Files:** project CSV save/open.
+- **Sketching:** points and lines with snapping; dimensions edited on the canvas (expressions allowed).
+- **Constraints:** geometric constraints, plus live constraint status while you drag.
+- **Mechanisms:** links (merge lines into rigid plates), automatic ground and joints (pins, pin-in-slot, slider blocks), and rotary or linear (actuator) drivers.
+- **Motion:**
+  - animation with playback controls and traced paths (coupler curves);
+  - plots of position, velocity, acceleration, link angles and transmission angles;
+  - range-of-motion and toggle limits, and Grashof classification;
+  - kinematics CSV export.
+- **Examples:** four-bar, slider-crank, quick-return and hydraulic boom.
+- **Files:** one CSV project file with undo/redo and autosave.
 
-Mechanisms, motion and forces come next. See the [design document](docs/DESIGN.md) for the architecture, solver math and roadmap, and the [file format reference](docs/FILE_FORMAT.md) for the CSV layout.
+Forces (joint reactions and input torque) come next, then cams. See the [design document](docs/DESIGN.md) for the architecture, solver math and roadmap, and the [file format reference](docs/FILE_FORMAT.md) for the CSV layout.
 
 ## Development
 

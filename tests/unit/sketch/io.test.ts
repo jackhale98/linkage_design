@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { convertUnits, newProject, parseProject, serializeProject } from '../../../src/core/model/project';
 import { addConstraint, addLine, addPoint } from '../../../src/core/sketch/edit';
+import { syncMechanism } from '../../../src/core/mechanism/model';
 
 const ctx = { angleScale: Math.PI / 180 };
 const fixed = new Date('2026-10-19T12:00:00.000Z');
@@ -16,6 +17,7 @@ function project() {
   const r1 = addConstraint(s, { type: 'distance', refs: ['L1'], value: 50, labelDx: 5, labelDy: -8 }, ctx);
   const r2 = addConstraint(s, { type: 'angle', refs: ['L1'], value: 36.87 }, ctx);
   if (!r1.ok || !r2.ok) throw new Error('setup failed');
+  syncMechanism(p.sketch, p.mechanism);
   return p;
 }
 

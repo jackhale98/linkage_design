@@ -37,7 +37,7 @@ class UiState {
   theme = $state<ThemeChoice>(loadJson('theme', 'system', isTheme));
   dockTab = $state<DockTab>(loadJson('dockTab', 'messages', isDockTab));
   dockOpen = $state<boolean>(loadJson('dockOpen', false, isBool));
-  dockHeight = $state<number>(loadJson('dockHeight', 220, isNumber));
+  dockHeight = $state<number>(loadJson('dockHeight', 300, isNumber));
   inspectorOpen = $state(false);
 
   persist(): void {

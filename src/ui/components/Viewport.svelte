@@ -32,6 +32,8 @@
     overlay,
     hudRight,
     badge,
+    bottom,
+    spacePan = true,
     children,
   }: {
     unit?: string;
@@ -45,6 +47,10 @@
     overlay?: Snippet<[ViewCtx]>;
     hudRight?: Snippet;
     badge?: Snippet;
+    /** Bottom-centre overlay (e.g. playback controls). */
+    bottom?: Snippet;
+    /** Hold Space to pan (off where Space has another job). */
+    spacePan?: boolean;
     children?: Snippet;
   } = $props();
 
@@ -104,7 +110,7 @@
     host.addEventListener('wheel', onWheel, { passive: false });
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.code !== 'Space') return;
+      if (e.code !== 'Space' || !spacePan) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.closest('input, textarea, select, button, [contenteditable]') || t.isContentEditable))
         return;
@@ -137,7 +143,7 @@
 
   /** Events from overlaid controls (zoom buttons, cards, editors) must not reach the canvas. */
   function fromOverlay(e: Event): boolean {
-    return !!(e.target as Element | null)?.closest('.hud, .overlay-top, .overlay, .badge');
+    return !!(e.target as Element | null)?.closest('.hud, .overlay-top, .overlay, .overlay-bottom, .badge');
   }
 
   function canvasEvent(type: CanvasPointer['type'], e: MouseEvent): CanvasPointer {
@@ -278,6 +284,10 @@
     <div class="badge">{@render badge()}</div>
   {/if}
 
+  {#if bottom}
+    <div class="overlay-bottom">{@render bottom()}</div>
+  {/if}
+
   <div class="hud left">
     <div class="scalebar" style:width={`${scaleBarPx}px`}><span>{grid.major} {unit}</span></div>
     <div class="coords num" aria-live="off">
@@ -382,6 +392,16 @@
 
   .overlay :global(*) {
     pointer-events: auto;
+  }
+
+  .overlay-bottom {
+    position: absolute;
+    bottom: 60px;
+    left: 50%;
+    display: flex;
+    justify-content: center;
+    width: min(560px, calc(100% - 2 * var(--space-4)));
+    transform: translateX(-50%);
   }
 
   .badge {

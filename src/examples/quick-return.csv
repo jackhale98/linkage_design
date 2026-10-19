@@ -1,0 +1,65 @@
+﻿LinkageDesign,1
+# Linkage Design project file - https://github.com/jackhale98/linkage_design
+
+[project]
+key,value
+name,Quick-return (crank and slotted lever)
+length_unit,mm
+force_unit,N
+angle_unit,deg
+notes,"Inverted slider-crank: the crank pin A slides in the slotted lever, which rocks about O4. The forward stroke takes longer than the return."
+created,2026-10-19T12:00:00.000Z
+modified,2026-10-19T12:00:00.000Z
+
+# Sketch points. fixed = anchored in place.
+[points]
+id,x,y,fixed,label
+P1,0,0,1,O4
+P2,0,150,0,O2
+P3,51.9615242271,180,0,A
+P4,83.2050294338,288.230676849,0,B
+
+# Lines between points. construction = helper geometry.
+[lines]
+id,p1,p2,construction
+L1,P1,P2,1
+L2,P2,P3,0
+L3,P1,P4,0
+
+# Constraints and dimensions. Values use the project units; angles are counterclockwise from line a to line b.
+[constraints]
+id,type,a,b,c,value,reference,label_dx,label_dy
+C1,vertical,L1,,,,0,,
+C2,distance,L1,,,150,0,-14,0
+C3,distance,L2,,,60,0,2,8
+C4,angle,L2,,,30,0,18,2
+C5,point_on_line,P3,L3,,,0,,
+C6,distance,L3,,,300,0,10,-6
+
+# Rigid bodies (links), each a group of sketch lines. ground = fixed to the frame.
+[bodies]
+id,name,lines,ground,color
+B1,Crank,L2,0,#2a78d6
+B2,Slotted lever,L3,0,#eb6834
+
+# Joints, derived from the sketch. type may be changed between pin_in_slot and slider.
+[joints]
+id,type,point,line,body_a,body_b
+J1,revolute,P2,,ground,B1
+J2,revolute,P1,,ground,B2
+J3,pin_in_slot,P3,L3,B2,B1
+
+# Driver: rotary (angle of a line, from +x or from line_ref) or linear (distance between two points). Speed in rpm or length/s.
+[driver]
+key,value
+type,rotary
+line,L2
+line_ref,
+point_a,
+point_b,
+steps,360
+speed,30
+
+[motion]
+key,value
+trace,P4

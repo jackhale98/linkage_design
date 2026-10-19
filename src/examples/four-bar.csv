@@ -7,7 +7,7 @@ name,Four-bar with coupler point
 length_unit,mm
 force_unit,N
 angle_unit,deg
-notes,"Crank-rocker: ground 150, crank 50, coupler 110, rocker 90. Coupler point C on a rigid triangle with A and B."
+notes,"Grashof crank-rocker: ground 140, crank 50, coupler 110, rocker 90. The coupler is a rigid triangle A-B-C; C traces the coupler curve."
 created,2026-10-19T12:00:00.000Z
 modified,2026-10-19T12:00:00.000Z
 
@@ -15,10 +15,10 @@ modified,2026-10-19T12:00:00.000Z
 [points]
 id,x,y,fixed,label
 P1,0,0,1,O2
-P2,150,0,0,O4
+P2,140,0,0,O4
 P3,25,43.3012701892,0,A
-P4,126.053039256,86.7556515227,0,B
-P5,81.4455785749,92.6864568279,0,Coupler point
+P4,125.163444586,88.7686691544,0,B
+P5,80.4462575647,93.805849408,0,C
 
 # Lines between points. construction = helper geometry.
 [lines]
@@ -34,10 +34,40 @@ L6,P4,P5,0
 [constraints]
 id,type,a,b,c,value,reference,label_dx,label_dy
 C1,horizontal,L1,,,,0,,
-C2,distance,L1,,,150,0,0,-12
+C2,distance,L1,,,140,0,0,-12
 C3,distance,L2,,,50,0,-7,4
 C4,angle,L2,,,60,0,20,9
 C5,distance,L3,,,110,0,3,-6
 C6,distance,L4,,,90,0,7,2
 C7,distance,L5,,,75,0,-5,5
 C8,distance,L6,,,45,0,1,7
+
+# Rigid bodies (links), each a group of sketch lines. ground = fixed to the frame.
+[bodies]
+id,name,lines,ground,color
+B1,Crank,L2,0,#2a78d6
+B2,Coupler,L3 L5 L6,0,#eb6834
+B3,Rocker,L4,0,#1baf7a
+
+# Joints, derived from the sketch. type may be changed between pin_in_slot and slider.
+[joints]
+id,type,point,line,body_a,body_b
+J1,revolute,P1,,ground,B1
+J2,revolute,P3,,B1,B2
+J4,revolute,P4,,B2,B3
+J6,revolute,P2,,ground,B3
+
+# Driver: rotary (angle of a line, from +x or from line_ref) or linear (distance between two points). Speed in rpm or length/s.
+[driver]
+key,value
+type,rotary
+line,L2
+line_ref,
+point_a,
+point_b,
+steps,360
+speed,60
+
+[motion]
+key,value
+trace,P5

@@ -50,7 +50,8 @@ export interface Extras {
   extras: Record<string, string>;
 }
 
-export type RecordOf<S extends TableSpec> = Row<S> & Extras & { line?: number };
+/** `srcLine` is the record's line in the source file (named so it can't clash with a column). */
+export type RecordOf<S extends TableSpec> = Row<S> & Extras & { srcLine?: number };
 
 export const ID_RE = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
 
@@ -157,7 +158,7 @@ export function readTable<S extends TableSpec>(
     }
     const extras: Record<string, string> = {};
     for (const [h, k] of unknown) extras[h] = rec.cells[k] ?? '';
-    out.push({ ...(row as Row<S>), extras, line: rec.line });
+    out.push({ ...(row as Row<S>), extras, srcLine: rec.line });
   }
   return out;
 }

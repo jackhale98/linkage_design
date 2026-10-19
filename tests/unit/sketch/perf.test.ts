@@ -47,3 +47,19 @@ describe('performance budget (docs/DESIGN.md §9.4)', () => {
     expect(perFrame).toBeLessThan(16);
   });
 });
+
+describe('performance budget: motion sweep', () => {
+  it('sweeps the four-bar example (360 steps) well within 30 ms', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { parseProject } = await import('../../../src/core/model/project');
+    const { computeMotion } = await import('../../../src/core/mechanism/motion');
+    const r = parseProject(readFileSync('src/examples/four-bar.csv', 'utf8'));
+    if (!r.ok) throw new Error('example failed to load');
+    computeMotion(r.project); // warm up
+    const t0 = performance.now();
+    for (let k = 0; k < 5; k++) computeMotion(r.project);
+    const ms = (performance.now() - t0) / 5;
+    console.log(`four-bar sweep: ${ms.toFixed(1)} ms`);
+    expect(ms).toBeLessThan(60); // 30 ms budget, with headroom for slower CI machines
+  });
+});

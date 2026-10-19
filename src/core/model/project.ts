@@ -16,6 +16,9 @@ import { readKeyValue, writeKeyValue, type Row, type Extras } from '../csv/table
 import { readSketch, writeSketch, SKETCH_SECTIONS } from '../sketch/io';
 import { CONSTRAINT_DEFS } from '../sketch/constraints';
 import { emptySketch, type Sketch } from '../sketch/types';
+import { readMechanism, writeMechanism, MECHANISM_SECTIONS } from '../mechanism/io';
+import { syncMechanism } from '../mechanism/model';
+import { emptyMechanism, type MechanismData } from '../mechanism/types';
 
 export const FILE_APP = 'LinkageDesign';
 export const FILE_VERSION = 1;
@@ -43,12 +46,13 @@ export type ProjectMeta = Row<typeof PROJECT_SPEC> & Extras;
 export interface Project {
   meta: ProjectMeta;
   sketch: Sketch;
+  mechanism: MechanismData;
   /** Sections not understood by this version, kept for round trips. */
   preserved: RawSection[];
 }
 
 /** Sections this version reads. Everything else is preserved. */
-const KNOWN_SECTIONS = new Set<string>(['project', ...SKETCH_SECTIONS]);
+const KNOWN_SECTIONS = new Set<string>(['project', ...SKETCH_SECTIONS, ...MECHANISM_SECTIONS]);
 
 export function newProject(now = new Date()): Project {
   const stamp = now.toISOString();
@@ -64,6 +68,7 @@ export function newProject(now = new Date()): Project {
       extras: {},
     },
     sketch: emptySketch(),
+    mechanism: emptyMechanism(),
     preserved: [],
   };
 }
@@ -93,6 +98,11 @@ export function convertUnits(p: Project, length: LengthUnit, angle: AngleUnit): 
     if (c.labelDx !== undefined) c.labelDx *= kl;
     if (c.labelDy !== undefined) c.labelDy *= kl;
   }
+  const d = p.mechanism.driver;
+  const kd = d.type === 'rotary' ? ka : kl;
+  if (d.start !== undefined) d.start *= kd;
+  if (d.end !== undefined) d.end *= kd;
+  if (d.type === 'linear') d.speed *= kl;
   p.meta.length_unit = length;
   p.meta.angle_unit = angle;
 }
@@ -100,7 +110,11 @@ export function convertUnits(p: Project, length: LengthUnit, angle: AngleUnit): 
 // ---------------------------------------------------------------- writing
 
 export function serializeProject(p: Project): string {
-  const sections: SectionOut[] = [writeKeyValue('project', PROJECT_SPEC, p.meta), ...writeSketch(p.sketch)];
+  const sections: SectionOut[] = [
+    writeKeyValue('project', PROJECT_SPEC, p.meta),
+    ...writeSketch(p.sketch),
+    ...writeMechanism(p.mechanism),
+  ];
   for (const s of p.preserved) {
     sections.push({ name: s.name, header: s.header, rows: s.records.map((r) => r.cells) });
   }
@@ -182,6 +196,7 @@ export function parseProject(text: string): ImportResult {
   const projectSection = byName.get('project');
   const meta = readKeyValue(projectSection, PROJECT_SPEC, doc.delimiter, diag);
   const sketch = readSketch(byName, doc.delimiter, diag);
+  const mechanism = readMechanism(byName, sketch, doc.delimiter, diag);
 
   const preserved = doc.sections.filter((s) => !KNOWN_SECTIONS.has(s.name));
   for (const s of preserved) {
@@ -192,7 +207,8 @@ export function parseProject(text: string): ImportResult {
   }
 
   if (diag.hasErrors) return { ok: false, errors: diag.errors, warnings: diag.warnings };
-  return { ok: true, project: { meta, sketch, preserved }, warnings: diag.warnings };
+  syncMechanism(sketch, mechanism);
+  return { ok: true, project: { meta, sketch, mechanism, preserved }, warnings: diag.warnings };
 }
 
 /** File name for exporting a project, derived from its name. */
