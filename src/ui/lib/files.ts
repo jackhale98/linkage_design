@@ -9,7 +9,8 @@ export function downloadText(fileName: string, text: string, type = 'text/csv;ch
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // Revoking only frees memory; wait long enough that a busy browser has started the download.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 export function pickFile(accept = '.csv,text/csv'): Promise<File | null> {
