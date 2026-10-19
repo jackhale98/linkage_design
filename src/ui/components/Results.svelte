@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { resultsTable, summarize } from '../../core/mechanism/analysis';
+  import { forcesTable, summarizeForces } from '../../core/forces/analysis';
   import { stringifyCsv, BOM } from '../../core/csv/rfc4180';
   import { projectFileName } from '../../core/model/project';
   import { downloadText } from '../lib/files';
@@ -13,6 +14,24 @@
   const angleUnit = $derived(store.project.meta.angle_unit === 'deg' ? '°' : ' rad');
   const len = $derived(store.project.meta.length_unit);
   const fmt = (v: number, d = 1) => Number(v.toFixed(d)).toString();
+  const forceSummary = $derived(data ? summarizeForces(data, motionUi.forces) : null);
+  const F = $derived(store.project.meta.force_unit);
+  const rotary = $derived(result.model.driver?.type === 'rotary');
+  const effortUnit = $derived(rotary ? `${F}·${len}` : F);
+  const inputUnit = $derived(rotary ? angleUnit : ` ${len}`);
+  const sig = (v: number) => {
+    const a = Math.abs(v);
+    return a >= 1000 ? v.toFixed(0) : a >= 100 ? v.toFixed(1) : a >= 1 ? v.toFixed(2) : v.toPrecision(3);
+  };
+
+  function exportForces() {
+    if (!data) return;
+    const u = { force: F, length: len };
+    downloadText(
+      projectFileName(store.project, '_forces'),
+      BOM + stringifyCsv(forcesTable(data, store.project.forces, motionUi.forces, u)),
+    );
+  }
 
   function exportCsv() {
     if (!data) return;
@@ -92,6 +111,42 @@
       </section>
     {/if}
 
+    {#if forceSummary}
+      {@const fs = forceSummary}
+      <section class="card">
+        <h3>
+          {rotary ? 'Input torque' : 'Actuator force'} ({store.project.forces.mode === 'static'
+            ? 'static'
+            : 'with inertia'})
+        </h3>
+        <p class="big num">{sig(fs.effort.min)} to {sig(fs.effort.max)} {effortUnit}</p>
+        <p class="muted num">
+          RMS {sig(fs.effort.rms)}
+          {effortUnit} · peak at {fmt(fs.effort.atMax)}{inputUnit} · peak power {sig(fs.power.peak)} W
+        </p>
+      </section>
+      <section class="card wide">
+        <h3>Joint forces (peak over the cycle)</h3>
+        <table>
+          <thead><tr><th>Joint</th><th>Peak force</th><th>At input</th></tr></thead>
+          <tbody>
+            {#each fs.joints as j (j.id)}
+              <tr>
+                <td>{j.id} at {j.point}</td>
+                <td class="num">{sig(j.max)} {F}</td>
+                <td class="num">{fmt(j.at)}{inputUnit}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+        <p class="muted small">
+          Power balance (virtual work) {fs.balance < 1e-6 ? 'verified' : 'NOT satisfied'}: max relative error {fs.balance.toExponential(
+            1,
+          )}.
+        </p>
+      </section>
+    {/if}
+
     <section class="card export">
       <h3>Export</h3>
       <p class="muted small">
@@ -99,6 +154,9 @@
         step of the sweep. One header row, units in the column names.
       </p>
       <button class="btn primary" onclick={exportCsv}><Icon name="download" /> Kinematics CSV</button>
+      {#if forceSummary}
+        <button class="btn outline" onclick={exportForces}><Icon name="download" /> Forces CSV</button>
+      {/if}
     </section>
   </div>
 {/if}

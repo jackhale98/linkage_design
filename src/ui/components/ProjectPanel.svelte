@@ -21,10 +21,7 @@
   /** Change units, converting stored values so the physical geometry is unchanged. */
   function setUnits(length: LengthUnit, angle: AngleUnit, force: ForceUnit) {
     if (length === meta.length_unit && angle === meta.angle_unit && force === meta.force_unit) return;
-    store.update((p) => {
-      convertUnits(p, length, angle);
-      p.meta.force_unit = force;
-    });
+    store.update((p) => convertUnits(p, length, angle, force));
   }
 
   function formatDate(iso: string): string {

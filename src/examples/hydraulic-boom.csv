@@ -36,8 +36,8 @@ C4,distance,L3,,,280,0,30,-10
 
 # Rigid bodies (links), each a group of sketch lines. ground = fixed to the frame.
 [bodies]
-id,name,lines,ground,color
-B1,Boom,L1 L2,0,#2a78d6
+id,name,lines,ground,color,mass,com_x,com_y,inertia
+B1,Boom,L1 L2,0,#2a78d6,20,450,180,1600000
 
 # Joints, derived from the sketch. type may be changed between pin_in_slot and slider.
 [joints]
@@ -60,3 +60,14 @@ speed,50
 [motion]
 key,value
 trace,P3
+
+# Loads: force (fx, fy at a point of a body), torque (on a body), spring (between two points: k, free length, preload tension), torsion (at a joint: k per angle unit, free angle, preload torque). Blank free = free at the drawn pose.
+[loads]
+id,type,body,point,point_b,joint,fx,fy,frame,torque,k,free,preload
+F1,force,B1,P3,,,0,-2000,global,0,0,,0
+
+# mode: static (applied loads only) or kinetostatic (plus inertia at the driver speed). gravity acts in -y.
+[analysis]
+key,value
+mode,static
+gravity,1

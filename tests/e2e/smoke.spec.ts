@@ -31,7 +31,7 @@ async function openProject(page: Page, name: string, text: string) {
 test('switches workspaces by click and keyboard', async ({ page }) => {
   await page.getByRole('tab', { name: 'Forces' }).click();
   await expect(page.getByRole('tab', { name: 'Forces' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('heading', { name: 'Forces' })).toBeVisible();
+  await expect(page.getByLabel('Properties').getByRole('heading', { name: 'Forces' })).toBeVisible();
   await page.locator('body').press('5');
   await expect(page.getByRole('tab', { name: 'Cam' })).toHaveAttribute('aria-selected', 'true');
 });

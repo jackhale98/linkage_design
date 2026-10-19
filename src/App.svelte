@@ -14,6 +14,8 @@
   import MechanismLayer from './ui/components/MechanismLayer.svelte';
   import MechanismStatus from './ui/components/MechanismStatus.svelte';
   import MotionBar from './ui/components/MotionBar.svelte';
+  import ForceLayer from './ui/components/ForceLayer.svelte';
+  import { forceOverlay } from './ui/lib/forceOverlay';
   import { EXAMPLES } from './examples';
   import { motionUi } from './ui/state/motion.svelte';
   import { evaluate } from './core/mechanism/analysis';
@@ -41,7 +43,21 @@
       store.project.sketch.points.filter((p) => p.label).map((p) => [p.id, p.label] as [string, string]),
     ),
   );
-  const traces = $derived(animated && motionUi.showTraces ? motionUi.tracePaths() : []);
+  const traces = $derived(ui.workspace === 'motion' && motionUi.showTraces ? motionUi.tracePaths() : []);
+  const forceView = $derived(
+    ui.workspace === 'forces'
+      ? forceOverlay(
+          motionUi.result,
+          store.project.mechanism.bodies,
+          store.project.forces,
+          motionUi.forces,
+          motionUi.frame,
+          motionUi.frameIndex,
+          { length: store.project.meta.length_unit, force: store.project.meta.force_unit },
+          { loads: motionUi.showLoads, reactions: motionUi.showReactions },
+        )
+      : null,
+  );
   const vectors = $derived.by(() => {
     // Read the motion result only where it's shown, so sketching doesn't re-run the sweep.
     if (!animated || !motionUi.showVelocity) return [];
@@ -326,6 +342,7 @@
             {traces}
             {vectors}
           />
+          {#if forceView}<ForceLayer {view} {size} overlay={forceView} />{/if}
         {:else}
           <SketchLayer
             {view}

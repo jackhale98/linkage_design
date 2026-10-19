@@ -6,7 +6,11 @@ import { reachable, quantities, type Quantity } from '../../core/mechanism/analy
 import { computeMotion, type MotionResult } from '../../core/mechanism/motion';
 import type { Frame } from '../../core/mechanism/sweep';
 import type { DriverSpec, JointType } from '../../core/mechanism/types';
-import type { Project } from '../../core/model/project';
+import { angleScale, type Project } from '../../core/model/project';
+import { solveForces, barMassProperties, type ForceResult } from '../../core/forces/solve';
+import { forceQuantities } from '../../core/forces/analysis';
+import { newLoad, type Load, type LoadType, type AnalysisMode } from '../../core/forces/types';
+import { GROUND } from '../../core/mechanism/types';
 import type { CanvasPointer, PointerResult } from '../lib/canvasEvents';
 import { worldToScreen } from '../lib/view';
 import { store } from './project.svelte';
@@ -40,6 +44,30 @@ class MotionUi {
   quantities: Quantity[] = $derived(
     this.result.data ? quantities(this.result.sys, this.result.data.units) : [],
   );
+
+  /** Joint reactions and driver effort over the sweep (computed when read). */
+  forces: ForceResult = $derived.by(() => {
+    const p = store.project;
+    return solveForces(
+      this.result,
+      $state.snapshot(p.mechanism.bodies) as Project['mechanism']['bodies'],
+      $state.snapshot(p.forces) as Project['forces'],
+      { length: p.meta.length_unit, force: p.meta.force_unit },
+      angleScale(p),
+    );
+  });
+  forceQuantities: Quantity[] = $derived(
+    this.result.data
+      ? forceQuantities(this.result.data, store.project.forces, this.forces, {
+          force: store.project.meta.force_unit,
+          length: store.project.meta.length_unit,
+        })
+      : [],
+  );
+  showReactions = $state(true);
+  showLoads = $state(true);
+  /** Load being edited in the Forces panel. */
+  selectedLoad = $state<string | null>(null);
 
   #direction = 1;
   #raf = 0;
@@ -238,7 +266,15 @@ class MotionUi {
   }
 
   /** Default plot: the first traced point's speed, else the first link's angle. */
-  ensureDefaultPlot(): void {
+  #effortPlotted = false;
+
+  ensureDefaultPlot(forces = false): void {
+    // The first visit to the Forces plots shows the input torque or force.
+    if (forces && !this.#effortPlotted && this.forceQuantities.length) {
+      this.#effortPlotted = true;
+      if (!this.plotKeys.some((k) => /^[dfs]:/.test(k))) this.togglePlot('d:effort');
+      return;
+    }
     if (this.plotKeys.length || !this.quantities.length) return;
     const trace = store.project.mechanism.motion.trace[0];
     const key =
@@ -285,6 +321,103 @@ class MotionUi {
 
   setTrace(point: string, on: boolean): void {
     this.#edit((p) => medit.setTrace(p.mechanism, point, on));
+  }
+
+  // ------------------------------------------------------------ forces
+
+  setAnalysis(patch: Partial<{ mode: AnalysisMode; gravity: boolean }>): void {
+    store.update((p) => Object.assign(p.forces, patch));
+  }
+
+  setMass(id: string, patch: Partial<{ mass: number; comX: number; comY: number; inertia: number }>): void {
+    store.update(
+      (p) => {
+        const b = p.mechanism.bodies.find((x) => x.id === id);
+        if (b) Object.assign(b, patch);
+      },
+      `mass:${id}:${Object.keys(patch).join()}`,
+    );
+  }
+
+  /** Mass properties of every link as uniform bars with this mass per unit length. */
+  estimateMasses(massPerLength: number): void {
+    store.update((p) => {
+      const ends = new Map(p.sketch.lines.map((l) => [l.id, [l.p1, l.p2] as [string, string]]));
+      const pos = new Map(p.sketch.points.map((q) => [q.id, [q.x, q.y] as [number, number]]));
+      const r = (v: number) => Number(v.toPrecision(6));
+      for (const b of p.mechanism.bodies) {
+        const m = barMassProperties(b, ends, pos, massPerLength);
+        Object.assign(b, { mass: r(m.mass), comX: r(m.comX), comY: r(m.comY), inertia: r(m.inertia) });
+      }
+    });
+  }
+
+  addLoad(type: LoadType): void {
+    const { model } = this.result;
+    const sel = this.selection;
+    const selBody = sel.find((id) => model.bodies.some((b) => b.id === id));
+    const selPoints = sel.filter((id) => model.positions.has(id));
+    const firstBody = model.bodies[0];
+    const loads = store.project.forces.loads;
+    let n = 0;
+    for (const l of loads) {
+      const m = /^[A-Z](\d+)$/.exec(l.id);
+      if (m) n = Math.max(n, Number(m[1]));
+    }
+    const id = `${{ force: 'F', torque: 'T', spring: 'S', torsion: 'K' }[type]}${n + 1}`;
+    const load: Load = newLoad(id, type);
+    if (type === 'force') {
+      const point = selPoints[0] ?? firstBody?.points[firstBody.points.length - 1] ?? '';
+      load.point = point;
+      load.body =
+        (selBody && model.bodies.find((b) => b.id === selBody)?.points.includes(point)
+          ? selBody
+          : undefined) ??
+        model.pointBodies.get(point)?.[0] ??
+        '';
+      load.fy = store.project.meta.force_unit === 'N' ? -100 : -20;
+    } else if (type === 'torque') {
+      load.body = selBody ?? firstBody?.id ?? '';
+      load.torque = 1000;
+    } else if (type === 'spring') {
+      const pts = [
+        ...new Set([...selPoints, ...model.bodies.flatMap((b) => b.points), ...model.groundPoints]),
+      ];
+      load.point = pts[0] ?? '';
+      load.pointB =
+        pts.find(
+          (p) =>
+            p !== load.point &&
+            (model.groundPoints.has(p) ||
+              !model.pointBodies.get(p)?.some((b) => model.pointBodies.get(load.point)?.includes(b))),
+        ) ??
+        pts[1] ??
+        '';
+      load.k = 1;
+    } else {
+      const j =
+        model.joints.find((x) => x.type === 'revolute' && x.a !== GROUND && x.b !== GROUND) ??
+        model.joints.find((x) => x.type === 'revolute');
+      load.joint = j?.id ?? '';
+      load.k = 100;
+    }
+    store.update((p) => void p.forces.loads.push(load));
+    this.selectedLoad = id;
+  }
+
+  updateLoad(id: string, patch: Partial<Load>): void {
+    store.update(
+      (p) => {
+        const l = p.forces.loads.find((x) => x.id === id);
+        if (l) Object.assign(l, patch);
+      },
+      `load:${id}:${Object.keys(patch).join()}`,
+    );
+  }
+
+  deleteLoad(id: string): void {
+    store.update((p) => void (p.forces.loads = p.forces.loads.filter((l) => l.id !== id)));
+    if (this.selectedLoad === id) this.selectedLoad = null;
   }
 
   /** Make a sketch dimension the driver. */

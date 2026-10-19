@@ -17,11 +17,7 @@
     onexample: () => void;
   } = $props();
 
-  const LATER: Record<'forces' | 'cam', { title: string; text: string }> = {
-    forces: {
-      title: 'Forces',
-      text: 'Apply forces, torques, gravity and springs to get the reaction at every joint and the required input torque or force.',
-    },
+  const LATER: Record<'cam', { title: string; text: string }> = {
     cam: {
       title: 'Cam',
       text: 'Define a motion program and follower to generate the cam profile, with SVAJ, pressure angle, curvature and undercut checks.',
@@ -45,10 +41,10 @@
   {:else if hint}
     <div class="hint" role="status">{hint}</div>
   {/if}
-{:else if workspace === 'mechanism' || workspace === 'motion'}
+{:else if workspace === 'mechanism' || workspace === 'motion' || workspace === 'forces'}
   {#if !hasLinks}
     <div class="card">
-      <h2>{workspace === 'mechanism' ? 'Mechanism' : 'Motion'}</h2>
+      <h2>{workspace === 'mechanism' ? 'Mechanism' : workspace === 'motion' ? 'Motion' : 'Forces'}</h2>
       <p>
         Every line you draw in the Sketch becomes a link; fixed points and construction lines touching them
         are ground. Draw a linkage first, or start from an example.
@@ -61,6 +57,8 @@
     </div>
   {:else if !mechanismReady}
     <div class="hint" role="status">Set a driver in the panel on the right to animate the mechanism</div>
+  {:else if workspace === 'forces'}
+    <div class="hint" role="status">Orange: loads · purple: joint reactions · teal: input</div>
   {/if}
 {:else}
   {@const intro = LATER[workspace]}
@@ -70,9 +68,6 @@
       <span class="tag">In development</span>
     </div>
     <p>{intro.text}</p>
-    {#if workspace === 'forces'}
-      <p class="muted small">The mechanism and its motion are shown here; force analysis comes next.</p>
-    {/if}
   </div>
 {/if}
 
@@ -112,10 +107,6 @@
 
   .card .btn {
     margin-top: var(--space-3);
-  }
-
-  .small {
-    font-size: var(--text-sm);
   }
 
   .keys {

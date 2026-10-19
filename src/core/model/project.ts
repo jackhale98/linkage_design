@@ -19,6 +19,8 @@ import { emptySketch, type Sketch } from '../sketch/types';
 import { readMechanism, writeMechanism, MECHANISM_SECTIONS } from '../mechanism/io';
 import { syncMechanism } from '../mechanism/model';
 import { emptyMechanism, type MechanismData } from '../mechanism/types';
+import { readForces, writeForces, FORCES_SECTIONS } from '../forces/io';
+import { emptyForces, type ForcesData } from '../forces/types';
 
 export const FILE_APP = 'LinkageDesign';
 export const FILE_VERSION = 1;
@@ -47,12 +49,18 @@ export interface Project {
   meta: ProjectMeta;
   sketch: Sketch;
   mechanism: MechanismData;
+  forces: ForcesData;
   /** Sections not understood by this version, kept for round trips. */
   preserved: RawSection[];
 }
 
 /** Sections this version reads. Everything else is preserved. */
-const KNOWN_SECTIONS = new Set<string>(['project', ...SKETCH_SECTIONS, ...MECHANISM_SECTIONS]);
+const KNOWN_SECTIONS = new Set<string>([
+  'project',
+  ...SKETCH_SECTIONS,
+  ...MECHANISM_SECTIONS,
+  ...FORCES_SECTIONS,
+]);
 
 export function newProject(now = new Date()): Project {
   const stamp = now.toISOString();
@@ -69,12 +77,15 @@ export function newProject(now = new Date()): Project {
     },
     sketch: emptySketch(),
     mechanism: emptyMechanism(),
+    forces: emptyForces(),
     preserved: [],
   };
 }
 
 const LENGTH_IN_METERS: Record<LengthUnit, number> = { mm: 0.001, m: 1, in: 0.0254 };
 const ANGLE_IN_RADIANS: Record<AngleUnit, number> = { deg: Math.PI / 180, rad: 1 };
+const FORCE_IN_NEWTONS: Record<ForceUnit, number> = { N: 1, lbf: 4.4482216152605 };
+const MASS_IN_KG: Record<ForceUnit, number> = { N: 1, lbf: 0.45359237 };
 
 /** Factor converting stored angle values to radians. */
 export function angleScale(p: Project): number {
@@ -85,9 +96,17 @@ export function angleScale(p: Project): number {
  * Change the project's units, converting every stored value so the
  * physical geometry is unchanged.
  */
-export function convertUnits(p: Project, length: LengthUnit, angle: AngleUnit): void {
+export function convertUnits(
+  p: Project,
+  length: LengthUnit,
+  angle: AngleUnit,
+  force: ForceUnit = p.meta.force_unit,
+): void {
   const kl = LENGTH_IN_METERS[p.meta.length_unit] / LENGTH_IN_METERS[length];
   const ka = ANGLE_IN_RADIANS[p.meta.angle_unit] / ANGLE_IN_RADIANS[angle];
+  // Force and the paired mass unit (kg with N, lb with lbf).
+  const kf = FORCE_IN_NEWTONS[p.meta.force_unit] / FORCE_IN_NEWTONS[force];
+  const km = MASS_IN_KG[p.meta.force_unit] / MASS_IN_KG[force];
   for (const pt of p.sketch.points) {
     pt.x *= kl;
     pt.y *= kl;
@@ -103,8 +122,29 @@ export function convertUnits(p: Project, length: LengthUnit, angle: AngleUnit): 
   if (d.start !== undefined) d.start *= kd;
   if (d.end !== undefined) d.end *= kd;
   if (d.type === 'linear') d.speed *= kl;
+  for (const b of p.mechanism.bodies) {
+    if (b.mass !== undefined) b.mass *= km;
+    if (b.comX !== undefined) b.comX *= kl;
+    if (b.comY !== undefined) b.comY *= kl;
+    if (b.inertia !== undefined) b.inertia *= km * kl * kl;
+  }
+  for (const l of p.forces.loads) {
+    l.fx *= kf;
+    l.fy *= kf;
+    l.torque *= kf * kl;
+    if (l.type === 'spring') {
+      l.k *= kf / kl;
+      l.preload *= kf;
+      if (l.free !== undefined) l.free *= kl;
+    } else if (l.type === 'torsion') {
+      l.k *= (kf * kl) / ka;
+      l.preload *= kf * kl;
+      if (l.free !== undefined) l.free *= ka;
+    }
+  }
   p.meta.length_unit = length;
   p.meta.angle_unit = angle;
+  p.meta.force_unit = force;
 }
 
 // ---------------------------------------------------------------- writing
@@ -114,6 +154,7 @@ export function serializeProject(p: Project): string {
     writeKeyValue('project', PROJECT_SPEC, p.meta),
     ...writeSketch(p.sketch),
     ...writeMechanism(p.mechanism),
+    ...writeForces(p.forces),
   ];
   for (const s of p.preserved) {
     sections.push({ name: s.name, header: s.header, rows: s.records.map((r) => r.cells) });
@@ -197,6 +238,7 @@ export function parseProject(text: string): ImportResult {
   const meta = readKeyValue(projectSection, PROJECT_SPEC, doc.delimiter, diag);
   const sketch = readSketch(byName, doc.delimiter, diag);
   const mechanism = readMechanism(byName, sketch, doc.delimiter, diag);
+  const forces = readForces(byName, sketch, mechanism, doc.delimiter, diag);
 
   const preserved = doc.sections.filter((s) => !KNOWN_SECTIONS.has(s.name));
   for (const s of preserved) {
@@ -208,7 +250,7 @@ export function parseProject(text: string): ImportResult {
 
   if (diag.hasErrors) return { ok: false, errors: diag.errors, warnings: diag.warnings };
   syncMechanism(sketch, mechanism);
-  return { ok: true, project: { meta, sketch, mechanism, preserved }, warnings: diag.warnings };
+  return { ok: true, project: { meta, sketch, mechanism, forces, preserved }, warnings: diag.warnings };
 }
 
 /** File name for exporting a project, derived from its name. */

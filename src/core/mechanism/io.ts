@@ -13,6 +13,10 @@ const BODIES_SPEC = {
   lines: { type: 'idlist' },
   ground: { type: 'bool' },
   color: { type: 'string' },
+  mass: { type: 'number', min: 0 },
+  com_x: { type: 'number' },
+  com_y: { type: 'number' },
+  inertia: { type: 'number', min: 0 },
 } as const;
 
 const JOINTS_SPEC = {
@@ -50,7 +54,13 @@ export function writeMechanism(m: MechanismData): SectionOut[] {
     writeTable(
       'bodies',
       BODIES_SPEC,
-      m.bodies.map((b) => ({ ...b })),
+      m.bodies.map((b) => ({
+        ...b,
+        mass: b.mass,
+        com_x: clean(b.comX),
+        com_y: clean(b.comY),
+        inertia: b.inertia,
+      })),
       'Rigid bodies (links), each a group of sketch lines. ground = fixed to the frame.',
     ),
     writeTable(
@@ -108,6 +118,10 @@ export function readMechanism(
         lines: r.lines,
         ground: r.ground,
         color: /^#[0-9a-fA-F]{6}$/.test(r.color) ? r.color : BODY_COLORS[i % BODY_COLORS.length]!,
+        mass: r.mass,
+        comX: r.com_x,
+        comY: r.com_y,
+        inertia: r.inertia,
         extras: r.extras,
       };
     });

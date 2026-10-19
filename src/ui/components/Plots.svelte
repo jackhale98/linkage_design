@@ -1,19 +1,22 @@
 <script lang="ts">
   import Chart from './Chart.svelte';
   import { inputValue, series, timeOf } from '../../core/mechanism/analysis';
+  import { forceSeries } from '../../core/forces/analysis';
   import { store } from '../state/project.svelte';
   import { motionUi } from '../state/motion.svelte';
   import { ui } from '../state/ui.svelte';
 
   const result = $derived(motionUi.result);
   const data = $derived(result.data);
-  const qs = $derived(motionUi.quantities);
+  // Force quantities (driver effort, joint forces, springs) come after the kinematic ones.
+  const qs = $derived([...motionUi.forceQuantities, ...motionUi.quantities]);
+  const isForce = (key: string) => /^[dfs]:/.test(key);
   const groups = $derived(
     [...new Set(qs.map((q) => q.group))].map((g) => ({ name: g, items: qs.filter((q) => q.group === g) })),
   );
 
   $effect(() => {
-    if (data) motionUi.ensureDefaultPlot();
+    if (data) motionUi.ensureDefaultPlot(ui.workspace === 'forces');
   });
 
   const rotary = $derived(result.model.driver?.type === 'rotary');
@@ -41,7 +44,7 @@
         .filter((q) => q!.unit === unit)
         .map((q) => ({
           label: q!.label,
-          values: series(data, q!.key),
+          values: isForce(q!.key) ? forceSeries(motionUi.forces, q!.key) : series(data, q!.key),
           slot: motionUi.plotSlots[q!.key] ?? 0,
         })),
     }));
@@ -87,7 +90,7 @@
                 class="sw"
                 style:background={slot === undefined ? 'transparent' : `var(--series-${(slot % 8) + 1})`}
               ></span>
-              <span>{q.label.replace(/^\S+ /, '')}</span>
+              <span>{g.name === 'Driver' ? q.label : q.label.replace(/^\S+ /, '')}</span>
               <span class="unit">{q.unit}</span>
             </label>
           {/each}

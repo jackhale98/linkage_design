@@ -12,6 +12,13 @@ export interface Body {
   /** Explicitly fixed to ground. */
   ground: boolean;
   color: string;
+  /** Mass (kg or lb); undefined = massless. */
+  mass?: number;
+  /** Centre of mass in the drawn pose; undefined = centroid of the body's lines. */
+  comX?: number;
+  comY?: number;
+  /** Moment of inertia about the centre of mass (mass x length^2); undefined = 0. */
+  inertia?: number;
   extras: Record<string, string>;
 }
 

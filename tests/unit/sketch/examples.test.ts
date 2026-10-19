@@ -4,6 +4,7 @@ import { angleScale, parseProject, serializeProject } from '../../../src/core/mo
 import { analyze } from '../../../src/core/sketch/solver';
 import { computeMotion } from '../../../src/core/mechanism/motion';
 import { reachable } from '../../../src/core/mechanism/analysis';
+import { solveForces } from '../../../src/core/forces/solve';
 
 const dir = 'src/examples';
 
@@ -23,6 +24,17 @@ describe('example projects', () => {
       expect(m.issues).toEqual([]);
       expect(m.mobility).toBe(1);
       expect(reachable(m.res!).length).toBeGreaterThan(10);
+      const p = r.project;
+      const f = solveForces(
+        m,
+        p.mechanism.bodies,
+        p.forces,
+        { length: p.meta.length_unit, force: p.meta.force_unit },
+        angleScale(p),
+      );
+      expect(f.issues).toEqual([]);
+      expect(f.frames.length).toBe(reachable(m.res!).length);
+      expect(Math.max(...f.frames.map((x) => x.balance))).toBeLessThan(1e-8);
     });
   }
 });

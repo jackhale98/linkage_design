@@ -6,6 +6,8 @@ import { newProject, serializeProject, type Project } from '../../src/core/model
 import { addConstraint, addLine, addPoint } from '../../src/core/sketch/edit';
 import { syncMechanism } from '../../src/core/mechanism/model';
 import type { Sketch } from '../../src/core/sketch/types';
+import { barMassProperties } from '../../src/core/forces/solve';
+import { newLoad, type Load } from '../../src/core/forces/types';
 
 const ctx = { angleScale: Math.PI / 180 };
 const DATE = new Date('2026-10-19T12:00:00.000Z');
@@ -25,7 +27,29 @@ function fix(s: Sketch, ...ids: string[]) {
   for (const id of ids) s.points.find((p) => p.id === id)!.fixed = true;
 }
 
-function save(file: string, p: Project, bodies: Record<string, { name: string; lines: string[] }>) {
+/** Give every moving body uniform-bar mass properties (mass per unit length). */
+function bars(p: Project, massPerLength: number) {
+  const ends = new Map(p.sketch.lines.map((l) => [l.id, [l.p1, l.p2] as [string, string]]));
+  const pos = new Map(p.sketch.points.map((q) => [q.id, [q.x, q.y] as [number, number]]));
+  for (const b of p.mechanism.bodies) {
+    const m = barMassProperties(b, ends, pos, massPerLength);
+    const r = (v: number) => Number(v.toPrecision(6));
+    Object.assign(b, { mass: r(m.mass), comX: r(m.comX), comY: r(m.comY), inertia: r(m.inertia) });
+  }
+}
+
+const bodyWith = (p: Project, line: string) => p.mechanism.bodies.find((b) => b.lines.includes(line))!;
+
+function loadOf(id: string, type: Load['type'], patch: Partial<Load>): Load {
+  return { ...newLoad(id, type), ...patch };
+}
+
+function save(
+  file: string,
+  p: Project,
+  bodies: Record<string, { name: string; lines: string[] }>,
+  forces?: (p: Project) => void,
+) {
   // Name the auto-created bodies after their first line.
   syncMechanism(p.sketch, p.mechanism);
   for (const [first, spec] of Object.entries(bodies)) {
@@ -39,6 +63,7 @@ function save(file: string, p: Project, bodies: Record<string, { name: string; l
     }
   }
   syncMechanism(p.sketch, p.mechanism);
+  forces?.(p);
   writeFileSync(`src/examples/${file}`, serializeProject(p));
 }
 
@@ -76,11 +101,24 @@ function fourBar() {
   );
   p.mechanism.driver = { ...p.mechanism.driver, type: 'rotary', line: crank, steps: 360, speed: 60 };
   p.mechanism.motion.trace = [c];
-  save('four-bar.csv', p, {
-    [crank]: { name: 'Crank', lines: [] },
-    [coupler]: { name: 'Coupler', lines: [ac, bc] },
-    [rocker]: { name: 'Rocker', lines: [] },
-  });
+  save(
+    'four-bar.csv',
+    p,
+    {
+      [crank]: { name: 'Crank', lines: [] },
+      [coupler]: { name: 'Coupler', lines: [ac, bc] },
+      [rocker]: { name: 'Rocker', lines: [] },
+    },
+    (q) => {
+      bars(q, 0.002); // kg/mm: a steel bar about 16 mm square
+      q.forces = {
+        ...q.forces,
+        mode: 'kinetostatic',
+        gravity: true,
+        loads: [loadOf('T1', 'torque', { body: bodyWith(q, rocker).id, torque: -2000 })],
+      };
+    },
+  );
 }
 
 function sliderCrank() {
@@ -111,10 +149,22 @@ function sliderCrank() {
   );
   p.mechanism.driver = { ...p.mechanism.driver, type: 'rotary', line: crank, steps: 360, speed: 120 };
   p.mechanism.motion.trace = [pin];
-  save('slider-crank.csv', p, {
-    [crank]: { name: 'Crank', lines: [] },
-    [rod]: { name: 'Connecting rod', lines: [] },
-  });
+  save(
+    'slider-crank.csv',
+    p,
+    {
+      [crank]: { name: 'Crank', lines: [] },
+      [rod]: { name: 'Connecting rod', lines: [] },
+    },
+    (q) => {
+      bars(q, 0.003);
+      q.forces = {
+        ...q.forces,
+        mode: 'kinetostatic',
+        loads: [loadOf('F1', 'force', { body: bodyWith(q, rod).id, point: pin, fx: -500 })],
+      };
+    },
+  );
 }
 
 function quickReturn() {
@@ -145,10 +195,23 @@ function quickReturn() {
   );
   p.mechanism.driver = { ...p.mechanism.driver, type: 'rotary', line: crank, steps: 360, speed: 30 };
   p.mechanism.motion.trace = [b];
-  save('quick-return.csv', p, {
-    [crank]: { name: 'Crank', lines: [] },
-    [lever]: { name: 'Slotted lever', lines: [] },
-  });
+  save(
+    'quick-return.csv',
+    p,
+    {
+      [crank]: { name: 'Crank', lines: [] },
+      [lever]: { name: 'Slotted lever', lines: [] },
+    },
+    (q) => {
+      bars(q, 0.002);
+      q.forces = {
+        ...q.forces,
+        mode: 'kinetostatic',
+        gravity: true,
+        loads: [loadOf('F1', 'force', { body: bodyWith(q, lever).id, point: b, fx: -200 })],
+      };
+    },
+  );
 }
 
 function boom() {
@@ -186,7 +249,16 @@ function boom() {
     speed: 50,
   };
   p.mechanism.motion.trace = [t];
-  save('hydraulic-boom.csv', p, { [b1]: { name: 'Boom', lines: [b2] } });
+  save('hydraulic-boom.csv', p, { [b1]: { name: 'Boom', lines: [b2] } }, (q) => {
+    const boom = bodyWith(q, b1);
+    Object.assign(boom, { mass: 20, comX: 450, comY: 180, inertia: 1.6e6 });
+    q.forces = {
+      ...q.forces,
+      mode: 'static',
+      gravity: true,
+      loads: [loadOf('F1', 'force', { body: boom.id, point: t, fy: -2000 })],
+    };
+  });
 }
 
 it.skipIf(!process.env.GENERATE_EXAMPLES)('generates example projects', () => {

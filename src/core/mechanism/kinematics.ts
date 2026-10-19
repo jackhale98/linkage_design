@@ -15,14 +15,14 @@
 // gamma from r_P'' = J_P q'' - phi_i'^2 (r_P - r_i) plus each constraint's own
 // curvature (Hessian) term.
 
-import { normInf, solveMinNorm, RowSpace } from '../math/linalg';
+import { normInf, solveMinNorm, solveSquare, RowSpace } from '../math/linalg';
 import { GROUND } from './types';
 import type { MechanismModel, ResolvedDriver } from './model';
 
 type Vec = [number, number];
 
 /** A point attached to a body (or ground, body index -1). */
-interface Attach {
+export interface Attach {
   body: number;
   /** Offset from the body reference point in the drawn pose (absolute position for ground). */
   s: Vec;
@@ -113,6 +113,24 @@ export class KinematicSystem {
       this.attachCache.set(key, a);
     }
     return a;
+  }
+
+  /** Attach an arbitrary drawn-pose position (e.g. a centre of mass) to a body. */
+  attachPosition(p: Vec, body: string): Attach {
+    const i = this.idx(body);
+    return i < 0
+      ? { body: -1, s: [p[0], p[1]] }
+      : { body: i, s: [p[0] - this.refPoint[i]![0], p[1] - this.refPoint[i]![1]] };
+  }
+
+  /** Rows of the constraint equations, each tagged with the constraint that produced it. */
+  rowOwners(): { kind: Constraint['kind']; joint?: string; index: number }[] {
+    const out: { kind: Constraint['kind']; joint?: string; index: number }[] = [];
+    this.constraints.forEach((c, index) => {
+      const joint = 'joint' in c ? c.joint : undefined;
+      for (let r = 0; r < (c.kind === 'revolute' ? 2 : 1); r++) out.push({ kind: c.kind, joint, index });
+    });
+    return out;
   }
 
   q0(): number[] {
@@ -386,12 +404,11 @@ export class KinematicSystem {
   /** Velocity and acceleration coefficients (derivatives with respect to the input). */
   derivatives(q: number[]): { qd: number[]; qdd: number[] } {
     const J = this.jacobian(q);
-    const qd = solveMinNorm(
-      J,
-      this.residualT().map((v) => -v),
-      1e-14,
-    );
-    const qdd = solveMinNorm(J, this.gamma(q, qd), 1e-14);
+    // Square and non-singular (the usual case): solve exactly; otherwise minimum-norm.
+    const solve = (rhs: number[]) =>
+      (J.length === this.n && solveSquare(J, rhs)) || solveMinNorm(J, rhs, 1e-14);
+    const qd = solve(this.residualT().map((v) => -v));
+    const qdd = solve(this.gamma(q, qd));
     return { qd, qdd };
   }
 }
