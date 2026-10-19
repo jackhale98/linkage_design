@@ -15,6 +15,14 @@
     [...new Set(qs.map((q) => q.group))].map((g) => ({ name: g, items: qs.filter((q) => q.group === g) })),
   );
 
+  /** The point or link a quantity is about, to highlight on the canvas. */
+  function target(key: string): string | null {
+    const [kind, id] = key.split(':');
+    if (kind === 'p' || kind === 'b') return id ?? null;
+    if (kind === 'f' || kind === 'j') return result.model.joints.find((j) => j.id === id)?.point ?? null;
+    return null;
+  }
+
   $effect(() => {
     if (data) motionUi.ensureDefaultPlot(ui.workspace === 'forces');
   });
@@ -76,7 +84,11 @@
         >
       </div>
       {#each groups as g (g.name)}
-        <details open={g.items.some((q) => motionUi.plotKeys.includes(q.key)) || g === groups[0]}>
+        <details
+          open={g.items.some((q) => motionUi.plotKeys.includes(q.key)) || g === groups[0]}
+          onmouseenter={() => (motionUi.hover = target(g.items[0]!.key))}
+          onmouseleave={() => (motionUi.hover = null)}
+        >
           <summary>{g.name}</summary>
           {#each g.items as q (q.key)}
             {@const slot = motionUi.plotSlots[q.key]}
@@ -90,7 +102,7 @@
                 class="sw"
                 style:background={slot === undefined ? 'transparent' : `var(--series-${(slot % 8) + 1})`}
               ></span>
-              <span>{g.name === 'Driver' ? q.label : q.label.replace(/^\S+ /, '')}</span>
+              <span>{q.short}</span>
               <span class="unit">{q.unit}</span>
             </label>
           {/each}

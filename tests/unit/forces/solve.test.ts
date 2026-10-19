@@ -112,6 +112,89 @@ describe('four-bar with an output torque on the rocker', () => {
   });
 });
 
+describe('known input torque: solving for the output', () => {
+  function fourBarProject() {
+    const p = newProject();
+    p.sketch = fourBar(50, 110, 90, 140, 60);
+    syncMechanism(p.sketch, p.mechanism);
+    p.mechanism.driver = { ...p.mechanism.driver, type: 'rotary', line: 'L2', steps: 72, speed: 30 };
+    return p;
+  }
+
+  it('delivers T_in w_in / w_out at the rocker pivot, with forces at the chosen points', () => {
+    const p = fourBarProject();
+    const pivot = p.mechanism.joints.find((j) => j.point === 'P2' && j.type === 'revolute')!;
+    p.forces = {
+      ...p.forces,
+      mode: 'static',
+      solveFor: 'output',
+      input: 1000,
+      outputJoint: pivot.id,
+      inputPoint: 'P3', // crank pin, 50 from O2
+      outputPoint: 'P4', // rocker pin, 90 from O4
+    };
+    const { m, f, frames } = run(p);
+    expect(f.issues).toEqual([]);
+    const rocker = p.mechanism.bodies.find((b) => b.lines.includes('L4'))!;
+    const ir = m.sys.bodyIndex.get(rocker.id)!;
+    frames.forEach((fr, k) => {
+      const ff = f.frames[k]!;
+      const ratio = fr.qd[3 * ir + 2]!; // w_out / w_in
+      expect(ff.driver).toBe(1000);
+      expect(ff.output * ratio).toBeCloseTo(1000, 6);
+      expect(ff.inputForce).toBeCloseTo(1000 / 50, 9);
+      expect(ff.outputForce).toBeCloseTo(ff.output / 90, 9);
+      expect(ff.balance).toBeLessThan(1e-9);
+      // Now the input torque loads every joint.
+      for (const r of ff.joints.values()) expect(Math.hypot(r.fx, r.fy)).toBeGreaterThan(1);
+    });
+  });
+
+  it('agrees with solving for the input against the same output load', () => {
+    const p = fourBarProject();
+    const pivot = p.mechanism.joints.find((j) => j.point === 'P2' && j.type === 'revolute')!;
+    p.forces = { ...p.forces, mode: 'static', solveFor: 'output', input: 1000, outputJoint: pivot.id };
+    const out = run(p).f.frames[10]!;
+    // The same torque as a load on the rocker, resisted: the driver needs exactly the input.
+    const rocker = p.mechanism.bodies.find((b) => b.lines.includes('L4'))!;
+    p.forces = {
+      ...p.forces,
+      solveFor: 'input',
+      loads: [load('T1', 'torque', { body: rocker.id, torque: -out.output })],
+    };
+    const back = run(p).f.frames[10]!;
+    expect(back.driver).toBeCloseTo(1000, 6);
+    for (const [id, r] of back.joints) {
+      expect(r.fx).toBeCloseTo(out.joints.get(id)!.fx, 6);
+      expect(r.fy).toBeCloseTo(out.joints.get(id)!.fy, 6);
+    }
+  });
+
+  it('reports zero joint forces, not round-off, for a torque on the driven link', () => {
+    const p = fourBarProject();
+    const crank = p.mechanism.bodies.find((b) => b.lines.includes('L2'))!;
+    p.forces = {
+      ...p.forces,
+      mode: 'static',
+      loads: [load('T1', 'torque', { body: crank.id, torque: 1000 })],
+    };
+    const { f } = run(p);
+    for (const ff of f.frames) {
+      expect(ff.driver).toBeCloseTo(-1000, 9);
+      for (const r of ff.joints.values()) expect([r.fx, r.fy, r.moment]).toEqual([0, 0, 0]);
+    }
+  });
+
+  it('needs a grounded output joint', () => {
+    const p = fourBarProject();
+    const coupler = p.mechanism.joints.find((j) => j.point === 'P3')!;
+    p.forces = { ...p.forces, solveFor: 'output', input: 1, outputJoint: coupler.id };
+    expect(run(p).f.issues[0]).toMatch(/must connect a link to ground/);
+    p.forces.outputJoint = '';
+    expect(run(p).f.issues[0]).toMatch(/Choose the output joint/);
+  });
+});
+
 describe('slider-crank with a load on the piston', () => {
   const r = 40;
   const l = 120;
@@ -148,6 +231,21 @@ describe('slider-crank with a load on the piston', () => {
       // Power balance: T w + F v = 0  =>  T = -F_x dx/dtheta = 100 dx/dtheta
       expect(ff.driver).toBeCloseTo(100 * dx, 5);
       expect(ff.joints.get(slot.id)!.fx).toBeCloseTo(0, 6);
+    });
+  });
+  it('delivers a force along the slot from a known crank torque', () => {
+    const slot = m.model.joints.find((j) => j.type === 'pin_in_slot')!;
+    const q = structuredClone(p);
+    q.forces = { ...q.forces, loads: [], solveFor: 'output', input: 100, outputJoint: slot.id };
+    const out = run(q);
+    expect(out.f.issues).toEqual([]);
+    out.frames.forEach((fr, k) => {
+      const t = fr.t;
+      const u = r * Math.sin(t);
+      const dx = -r * Math.sin(t) - (u * r * Math.cos(t)) / Math.sqrt(l * l - u * u);
+      if (Math.abs(dx) < 1) return; // near the dead centres the force grows without bound
+      // T w = F v  =>  F = T / (dx/dtheta), along the slot (+x)
+      expect(out.f.frames[k]!.output * dx).toBeCloseTo(100, 6);
     });
   });
 });
@@ -270,6 +368,30 @@ describe('CSV', () => {
     expect(serializeProject(r.project)).toBe(text);
     expect(r.project.forces.loads[0]).toEqual(p.forces.loads[0]);
     expect(r.project.mechanism.bodies[0]!.mass).toBe(0.25);
+  });
+
+  it('round-trips the solve-for settings', () => {
+    const p = newProject(new Date('2026-10-19T12:00:00Z'));
+    p.sketch = fourBar(50, 110, 90, 140, 60);
+    syncMechanism(p.sketch, p.mechanism);
+    const j = p.mechanism.joints.find((x) => x.point === 'P2')!;
+    p.forces = {
+      ...p.forces,
+      solveFor: 'output',
+      input: 1200,
+      outputJoint: j.id,
+      inputPoint: 'P3',
+      outputPoint: 'P4',
+    };
+    const text = serializeProject(p);
+    expect(text).toContain(
+      `solve_for,output\r\ninput,1200\r\noutput_joint,${j.id}\r\ninput_point,P3\r\noutput_point,P4\r\n`,
+    );
+    const r = parseProject(text);
+    if (!r.ok) throw new Error(JSON.stringify(r.errors));
+    expect(r.project.forces).toEqual(p.forces);
+    const bad = parseProject(text.replace(`output_joint,${j.id}`, 'output_joint,J99'));
+    expect(bad.ok).toBe(false);
   });
 
   it('rejects loads that refer to missing geometry', () => {

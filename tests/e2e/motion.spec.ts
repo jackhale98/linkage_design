@@ -41,7 +41,7 @@ test('plots quantities and exports a kinematics CSV', async ({ page }) => {
   await page.getByRole('tab', { name: 'Plots' }).click();
   await expect(page.locator('.u-wrap')).toHaveCount(1);
   // Adding an angle (different unit) adds a second chart rather than a second axis.
-  await page.locator('summary', { hasText: 'Rocker' }).click();
+  await page.locator('summary', { hasText: /^Rocker$/ }).click();
   await page
     .getByRole('checkbox', { name: /^angle\b/ })
     .last()
@@ -58,7 +58,7 @@ test('plots quantities and exports a kinematics CSV', async ({ page }) => {
   const csv = await readFile((await d.path())!, 'utf8');
   expect(csv.startsWith('\uFEFF')).toBe(true); // BOM so Excel reads UTF-8
   const lines = csv.slice(1).trimEnd().split('\r\n');
-  expect(lines[0]!.startsWith('input [deg],time [s],P3_x [mm]')).toBe(true);
+  expect(lines[0]!.startsWith('input [deg],time [s],A_x [mm]')).toBe(true);
   expect(lines).toHaveLength(362);
 });
 

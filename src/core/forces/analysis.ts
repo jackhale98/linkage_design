@@ -5,6 +5,7 @@ import { inputValue, reachable, timeOf, type MotionData } from '../mechanism/ana
 import type { Quantity } from '../mechanism/analysis';
 import type { ForcesData } from './types';
 import type { ForceResult } from './solve';
+import { jointNames, pointName } from '../mechanism/names';
 
 export interface ForceUnitsLabel {
   force: string;
@@ -21,32 +22,82 @@ export function forceQuantities(
   const rotary = data.sys.driver?.type === 'rotary';
   const out: Quantity[] = [
     rotary
-      ? { key: 'd:effort', label: 'Input torque', unit: `${u.force}·${u.length}`, group: 'Driver' }
-      : { key: 'd:effort', label: 'Actuator force', unit: u.force, group: 'Driver' },
-    { key: 'd:power', label: 'Input power', unit: 'W', group: 'Driver' },
+      ? {
+          key: 'd:effort',
+          label: 'Input torque',
+          short: 'Input torque',
+          unit: `${u.force}·${u.length}`,
+          group: 'Driver',
+        }
+      : { key: 'd:effort', label: 'Actuator force', short: 'Actuator force', unit: u.force, group: 'Driver' },
+    { key: 'd:power', label: 'Input power', short: 'Input power', unit: 'W', group: 'Driver' },
   ];
-  for (const j of data.sys.model.joints) {
-    const g = `Joint ${j.id} (at ${j.point})`;
-    out.push(
-      { key: `f:${j.id}:mag`, label: `${j.id} force`, unit: u.force, group: g },
-      { key: `f:${j.id}:fx`, label: `${j.id} Fx`, unit: u.force, group: g },
-      { key: `f:${j.id}:fy`, label: `${j.id} Fy`, unit: u.force, group: g },
-    );
-    if (j.type === 'slider')
+  const T = `${u.force}·${u.length}`;
+  const names = jointNames(data.sys.model);
+  const point = (p: string) => pointName(data.sys.model, p);
+  const f0 = result.frames[0]!;
+  if (Number.isFinite(f0.inputForce))
+    out.push({
+      key: 'd:inF',
+      label: `Input force at ${point(forces.inputPoint)}`,
+      short: `Input as a force at ${point(forces.inputPoint)}`,
+      unit: u.force,
+      group: 'Driver',
+    });
+  if (forces.solveFor === 'output' && Number.isFinite(f0.output)) {
+    const oj = data.sys.model.joints.find((j) => j.id === forces.outputJoint)!;
+    const rotaryOut = oj.type === 'revolute';
+    const g = `Output at ${names.get(oj.id)!.long}`;
+    out.push({
+      key: 'd:output',
+      label: rotaryOut ? 'Output torque' : 'Output force',
+      short: rotaryOut ? 'Output torque' : 'Output force',
+      unit: rotaryOut ? T : u.force,
+      group: g,
+    });
+    if (rotaryOut === rotary)
       out.push({
-        key: `f:${j.id}:moment`,
-        label: `${j.id} moment`,
-        unit: `${u.force}·${u.length}`,
+        key: 'd:ma',
+        label: 'Mechanical advantage',
+        short: 'Mechanical advantage',
+        unit: '×',
+        group: g,
+      });
+    if (Number.isFinite(f0.outputForce))
+      out.push({
+        key: 'd:outF',
+        label: `Output force at ${point(forces.outputPoint)}`,
+        short: `Output as a force at ${point(forces.outputPoint)}`,
+        unit: u.force,
         group: g,
       });
   }
+  for (const j of data.sys.model.joints) {
+    const n = names.get(j.id)!;
+    const q = (w: string, short: string, unit: string): Quantity => ({
+      key: `f:${j.id}:${w}`,
+      label: `${n.short} ${short}`,
+      short,
+      unit,
+      group: `Joint ${n.long}`,
+    });
+    out.push(q('mag', 'force', u.force), q('fx', 'Fx', u.force), q('fy', 'Fy', u.force));
+    if (j.type === 'slider') out.push(q('moment', 'moment', `${u.force}·${u.length}`));
+  }
   for (const l of forces.loads) {
     if (l.type === 'spring')
-      out.push({ key: `s:${l.id}`, label: `Spring ${l.id} tension`, unit: u.force, group: 'Springs' });
+      out.push({
+        key: `s:${l.id}`,
+        label: `Spring ${l.id} tension`,
+        short: `${l.id} tension`,
+        unit: u.force,
+        group: 'Springs',
+      });
     if (l.type === 'torsion')
       out.push({
         key: `s:${l.id}`,
         label: `Torsion spring ${l.id} torque`,
+        short: `${l.id} torque`,
         unit: `${u.force}·${u.length}`,
         group: 'Springs',
       });
@@ -57,7 +108,13 @@ export function forceQuantities(
 export function forceSeries(result: ForceResult, key: string): number[] {
   const [kind, id, what] = key.split(':') as [string, string, string | undefined];
   return result.frames.map((f) => {
-    if (kind === 'd') return id === 'effort' ? f.driver : f.power;
+    if (kind === 'd') {
+      if (id === 'output') return f.output;
+      if (id === 'ma') return f.driver ? f.output / f.driver : NaN;
+      if (id === 'inF') return f.inputForce;
+      if (id === 'outF') return f.outputForce;
+      return id === 'effort' ? f.driver : f.power;
+    }
     if (kind === 's') return f.springs.get(id) ?? NaN;
     const j = f.joints.get(id);
     if (!j) return NaN;
@@ -72,6 +129,18 @@ export interface ForceSummary {
   effort: { min: number; max: number; rms: number; atMax: number };
   power: { peak: number; mean: number };
   joints: { id: string; point: string; max: number; at: number }[];
+  /** Solving for the output: its range, the mechanical advantage range, and the forces at points. */
+  output: {
+    min: number;
+    max: number;
+    /** Median magnitude: a typical value that isn't swamped by dead-point spikes. */
+    typical: number;
+    ma?: { min: number; max: number };
+    /** Driver inputs (user units) where the output stops and reverses: its torque or force is unbounded there. */
+    deadPoints: number[];
+  } | null;
+  inputForce: { min: number; max: number } | null;
+  outputForce: { min: number; max: number } | null;
   balance: number;
 }
 
@@ -97,6 +166,9 @@ export function summarizeForces(data: MotionData, result: ForceResult): ForceSum
     },
     power: { peak: Math.max(...power.map(Math.abs)), mean: power.reduce((s, v) => s + v, 0) / power.length },
     joints,
+    output: Number.isFinite(result.frames[0]!.output) ? outputSummary(result, inputs) : null,
+    inputForce: range(forceSeries(result, 'd:inF')),
+    outputForce: range(forceSeries(result, 'd:outF')),
     balance: Math.max(...result.frames.map((f) => f.balance)),
   };
 }
@@ -126,4 +198,26 @@ export function forcesTable(
       ...cols.map((c) => formatNumber(c[i]!)),
     ]),
   ];
+}
+
+function range(v: number[]): { min: number; max: number } | null {
+  const ok = v.filter(Number.isFinite);
+  return ok.length ? { min: Math.min(...ok), max: Math.max(...ok) } : null;
+}
+
+function outputSummary(result: ForceResult, inputs: number[]): NonNullable<ForceSummary['output']> {
+  const all = forceSeries(result, 'd:output');
+  const out = all.filter(Number.isFinite);
+  const mags = out.map(Math.abs).sort((a, b) => a - b);
+  const typical = mags[Math.floor((mags.length - 1) / 2)] ?? 0;
+  // The output flips sign through a spike where it stops and reverses.
+  const deadPoints: number[] = [];
+  for (let k = 1; k < all.length; k++) {
+    const a = all[k - 1]!;
+    const b = all[k]!;
+    if (a * b < 0 && Math.min(Math.abs(a), Math.abs(b)) > 3 * typical)
+      deadPoints.push(Math.abs(a) > Math.abs(b) ? inputs[k - 1]! : inputs[k]!);
+  }
+  const ma = range(forceSeries(result, 'd:ma'));
+  return { min: Math.min(...out), max: Math.max(...out), typical, deadPoints, ...(ma ? { ma } : {}) };
 }

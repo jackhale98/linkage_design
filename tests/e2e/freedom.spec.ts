@@ -46,9 +46,7 @@ test('highlights the links behind an extra degree of freedom', async ({ page }) 
   );
   await page.getByRole('tab', { name: 'Mechanism' }).click();
   await expect(page.getByTestId('mechanism-status')).toHaveText('2 DOF');
-  await expect(
-    page.getByText(/With the Crank held still, Link \d can still move \(highlighted\)/),
-  ).toBeVisible();
+  await expect(page.getByText(/With Crank held still, Link \d can still move \(highlighted\)/)).toBeVisible();
   await expect(page.locator('line.loose')).toHaveCount(1);
   await expect(page.locator('.freedom.over .mark')).toHaveCount(1);
 });

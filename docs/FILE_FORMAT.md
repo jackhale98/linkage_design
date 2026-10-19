@@ -199,6 +199,10 @@ Applied loads for the force analysis.
 |---|---|
 | `mode` | `static` (applied loads only) or `kinetostatic` (adds each link's inertia at the driver speed) |
 | `gravity` | `1` to add each link's weight, acting in −y |
+| `solve_for` | `input` (default): the loads are known; find the input torque or actuator force needed. `output`: the input is known; find what the output joint delivers. |
+| `input` | The known input torque (rotary driver, CCW +) or actuator force (+ pushes apart), when `solve_for` is `output` |
+| `output_joint` | The output, when `solve_for` is `output`: a pivot to ground (output torque on the link turning about it) or a pin or block in a ground slot (output force along the slot) |
+| `input_point`, `output_point` | Optional points on the driven and output links. The input and output torques are also reported as forces there, at right angles to the line from the pivot. |
 
 ## Results exports
 
@@ -213,12 +217,13 @@ Analysis results export as separate, flat CSV files with one header row and unit
 | Each link | angle, angular velocity, angular acceleration |
 | Each pin between two links | Joint angle (the transmission angle where it applies) |
 
-Example column names: `P3_x [mm]`, `P3_speed [mm/s]`, `Rocker_angular_velocity [deg/s]`. Rates assume the driver turns (or extends) at the set constant speed.
+Points and joints are named by their sketch label where they have one, otherwise by ID. Example column names: `A_x [mm]`, `P5_speed [mm/s]`, `Rocker_angular_velocity [deg/s]`. Rates assume the driver turns (or extends) at the set constant speed.
 
 **Forces** (Forces → Results → Forces CSV): one row per sweep step.
 
 | Column group | Contents |
 |---|---|
-| Driver | `input`, `time [s]`, input torque (or actuator force) and input power |
+| Driver | `input`, `time [s]`, input torque (or actuator force) and input power; the input as a force at `input_point` if set |
+| Output | When solving for the output: output torque (or force), mechanical advantage, and the output as a force at `output_point` if set |
 | Each joint | Force magnitude, Fx, Fy on the joint's second link (`body_b`), and the moment for slider blocks |
 | Each spring | Tension, or torque for torsion springs |

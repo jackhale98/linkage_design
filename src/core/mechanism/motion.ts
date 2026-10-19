@@ -5,7 +5,7 @@ import { driverRate, type MotionData } from './analysis';
 import { KinematicSystem } from './kinematics';
 import { buildModel, syncMechanism, type MechanismIssue, type MechanismModel } from './model';
 import { sweep, type SweepResult } from './sweep';
-import { mechanismFreedom, type MechanismFreedom } from './freedom';
+import { mechanismFreedom, poseConstraints, type MechanismFreedom } from './freedom';
 
 export interface MotionResult {
   model: MechanismModel;
@@ -61,9 +61,13 @@ export function computeMotion(project: Project): MotionResult {
         : freedom.held
           ? ` With ${freedom.held} held still, ${list(names)} can still move (highlighted).`
           : ` The highlighted links (${list(names)}) can move independently.`;
+      const pose = poseConstraints(project.sketch, model, freedom.bodies);
+      const why = pose.length
+        ? ` In the sketch, ${list(pose)} hold${pose.length === 1 ? 's' : ''} this in place, but ${pose.length === 1 ? 'it spans' : 'they span'} separate links, so ${pose.length === 1 ? 'it only sets' : 'they only set'} the drawn pose; the mechanism keeps only dimensions inside a link.`
+        : '';
       issues.push({
         severity: 'error',
-        message: `The mechanism has ${mobility} degrees of freedom; one driver can only control one.${where} Add links, joints or fixed points to remove ${mobility - 1}.`,
+        message: `The mechanism has ${mobility} degrees of freedom; one driver can only control one.${where}${why} To remove ${mobility - 1}: merge links that should move as one, brace a four-sided loop with a diagonal link, or add a fixed pivot.`,
       });
     } else if (!model.driver)
       issues.push({ severity: 'warning', message: 'Choose a driver to animate the mechanism' });

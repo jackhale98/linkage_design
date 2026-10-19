@@ -40,17 +40,46 @@ export interface Load {
 export const ANALYSIS_MODES = ['static', 'kinetostatic'] as const;
 export type AnalysisMode = (typeof ANALYSIS_MODES)[number];
 
+/**
+ * input: the loads are known; find the input torque or force the driver needs.
+ * output: the input torque or force is known; find what the output delivers.
+ */
+export const SOLVE_FOR = ['input', 'output'] as const;
+export type SolveFor = (typeof SOLVE_FOR)[number];
+
 export interface ForcesData {
   loads: Load[];
   /** static: applied loads only; kinetostatic: plus inertia at the driver speed. */
   mode: AnalysisMode;
   /** Gravity acts in -y (on bodies with mass). */
   gravity: boolean;
+  solveFor: SolveFor;
+  /** The known input torque (rotary driver) or actuator force (linear), when solving for the output. */
+  input: number;
+  /**
+   * Output joint, when solving for the output: a pivot to ground (output
+   * torque on the link turning about it) or a pin or block in a ground slot
+   * (output force along the slot).
+   */
+  outputJoint: string;
+  /** Optional points to express the input and output torques as forces (at right angles to the radius). */
+  inputPoint: string;
+  outputPoint: string;
   extras: Record<string, string>;
 }
 
 export function emptyForces(): ForcesData {
-  return { loads: [], mode: 'kinetostatic', gravity: false, extras: {} };
+  return {
+    loads: [],
+    mode: 'kinetostatic',
+    gravity: false,
+    solveFor: 'input',
+    input: 0,
+    outputJoint: '',
+    inputPoint: '',
+    outputPoint: '',
+    extras: {},
+  };
 }
 
 export function newLoad(id: string, type: LoadType): Load {

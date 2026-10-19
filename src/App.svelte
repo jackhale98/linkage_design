@@ -38,12 +38,7 @@
     ui.workspace === 'mechanism' || ui.workspace === 'motion' || ui.workspace === 'forces',
   );
   const animated = $derived(ui.workspace === 'motion' || ui.workspace === 'forces');
-  const pose = $derived(mechView ? motionUi.poseAt(animated ? motionUi.frame : null) : null);
-  const pointLabels = $derived(
-    new Map(
-      store.project.sketch.points.filter((p) => p.label).map((p) => [p.id, p.label] as [string, string]),
-    ),
-  );
+  const pose = $derived(mechView ? motionUi.poseAt(animated ? motionUi.displayFrame : null) : null);
   const sketchFreedom = $derived(
     store.project.sketch.points.flatMap((p) => {
       const f = sketchUi.analysis.freedom.get(p.id);
@@ -58,7 +53,7 @@
           store.project.mechanism.bodies,
           store.project.forces,
           motionUi.forces,
-          motionUi.frame,
+          motionUi.displayFrame,
           motionUi.frameIndex,
           { length: store.project.meta.length_unit, force: store.project.meta.force_unit },
           { loads: motionUi.showLoads, reactions: motionUi.showReactions },
@@ -69,7 +64,7 @@
     // Read the motion result only where it's shown, so sketching doesn't re-run the sweep.
     if (!animated || !motionUi.showVelocity) return [];
     const data = motionUi.result.data;
-    const f = motionUi.frame;
+    const f = motionUi.displayFrame;
     if (!data || !f) return [];
     const pts = store.project.mechanism.motion.trace;
     const vs = pts.map((p) => [p, evaluate(data, f, `p:${p}:vx`), evaluate(data, f, `p:${p}:vy`)] as const);
@@ -343,7 +338,7 @@
             {size}
             model={motionUi.result.model}
             {pose}
-            labels={pointLabels}
+            labels={motionUi.result.model.pointNames}
             selection={motionUi.selection}
             hover={motionUi.hover}
             {traces}
@@ -353,7 +348,7 @@
           {#if motionUi.result.freedom}
             <FreedomMarks {view} {size} points={motionUi.result.freedom.points} tone="over" />
           {/if}
-          {#if forceView}<ForceLayer {view} {size} overlay={forceView} />{/if}
+          {#if forceView}<ForceLayer {view} {size} overlay={forceView} values={!motionUi.playing} />{/if}
         {:else}
           <SketchLayer
             {view}

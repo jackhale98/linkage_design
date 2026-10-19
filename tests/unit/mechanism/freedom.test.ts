@@ -60,7 +60,7 @@ describe('mechanism freedom', () => {
     const f = m.freedom!;
     expect(f.modes).toBe(1);
     const crank = m.model.bodies.find((b) => b.lines.includes('L2'))!;
-    expect(f.held).toBe(`the ${crank.name}`);
+    expect(f.held).toBe(crank.name);
     const pendulum = m.model.bodies.find((b) => b.points.includes(e))!;
     expect(f.bodies).toEqual([pendulum.id]);
     // Only the pendulum's free end moves, at right angles to the pendulum.
@@ -71,7 +71,7 @@ describe('mechanism freedom', () => {
     const along = [E.x - B.x, E.y - B.y];
     expect(Math.abs(pt.dir[0] * along[0]! + pt.dir[1] * along[1]!)).toBeLessThan(1e-9);
     const msg = m.issues.find((i) => i.severity === 'error')!.message;
-    expect(msg).toContain(`With the ${crank.name} held still,`);
+    expect(msg).toContain(`With ${crank.name} held still,`);
     expect(msg).toContain(`${m.model.bodies.find((b) => b.id === pendulum.id)!.name} can still move`);
   });
 
@@ -118,5 +118,38 @@ describe('pivot partway along a link', () => {
     const m = lever(true);
     expect(m.model.joints.map((j) => j.type)).toEqual(['revolute']);
     expect(m.mobility).toBe(1);
+  });
+});
+
+describe('sketch dimensions that only set the pose', () => {
+  it('names the dimension that holds an extra freedom in the sketch', () => {
+    // Two cranks joined by a four-sided loop of bars: the loop folds, so the
+    // output crank turns freely; only the sketch angle on it (C?) held it.
+    const p = newProject(new Date('2026-10-19T12:00:00Z'));
+    const s = emptySketch();
+    const o2 = addPoint(s, 0, 0);
+    const o4 = addPoint(s, 300, 0);
+    s.points[0]!.fixed = true;
+    const a = addPoint(s, 30, 40);
+    const b = addPoint(s, 330, 40);
+    const c = addPoint(s, 150, 100);
+    const d = addPoint(s, 180, -20);
+    addLine(s, o2, o4, true); // L1 ground
+    addLine(s, o2, a); // L2 input crank
+    addLine(s, o4, b); // L3 output crank
+    addLine(s, a, c);
+    addLine(s, c, b);
+    addLine(s, b, d);
+    addLine(s, d, a);
+    must(s, { type: 'horizontal', refs: ['L1'] }, { type: 'angle', refs: ['L3', 'L1'], value: 60 });
+    p.sketch = s;
+    p.mechanism.driver = { ...p.mechanism.driver, type: 'rotary', line: 'L2' };
+    syncMechanism(p.sketch, p.mechanism);
+    const m = computeMotion(p);
+    expect(m.mobility).toBe(2);
+    const angle = s.constraints.find((x) => x.type === 'angle')!;
+    const msg = m.issues.find((i) => i.severity === 'error')!.message;
+    expect(msg).toContain(`In the sketch, ${angle.id} holds this in place`);
+    expect(msg).toContain('brace a four-sided loop with a diagonal link');
   });
 });

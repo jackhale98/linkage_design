@@ -9,7 +9,7 @@ import type { DriverSpec, JointType } from '../../core/mechanism/types';
 import { angleScale, type Project } from '../../core/model/project';
 import { solveForces, barMassProperties, type ForceResult } from '../../core/forces/solve';
 import { forceQuantities } from '../../core/forces/analysis';
-import { newLoad, type Load, type LoadType, type AnalysisMode } from '../../core/forces/types';
+import { newLoad, type Load, type LoadType, type ForcesData } from '../../core/forces/types';
 import { GROUND } from '../../core/mechanism/types';
 import type { CanvasPointer, PointerResult } from '../lib/canvasEvents';
 import { worldToScreen } from '../lib/view';
@@ -22,6 +22,9 @@ function plain(p: Project): Project {
   return $state.snapshot(p) as Project;
 }
 
+/** Seconds per stroke (or revolution) at the auto playback pace. */
+export const AUTO_PASS_S = 4;
+
 class MotionUi {
   /** Selected bodies and points (Mechanism/Motion workspaces). */
   selection = $state<string[]>([]);
@@ -30,7 +33,8 @@ class MotionUi {
   /** Continuous playback position, an index into the reachable frames. */
   phase = $state(0);
   playing = $state(false);
-  playbackSpeed = $state(1);
+  /** Multiple of real time, or 0 for auto: one stroke (or revolution) every AUTO_PASS_S seconds. */
+  playbackSpeed = $state(0);
   showTraces = $state(true);
   showVelocity = $state(false);
   /** Plotted quantity keys, each with a fixed colour slot (colour follows the quantity). */
@@ -82,6 +86,21 @@ class MotionUi {
   get frame(): Frame | null {
     const i = this.frameIndex;
     return i >= 0 ? this.frames[i]! : null;
+  }
+
+  /** The pose between sweep steps at the exact playback position (smooth animation). */
+  get displayFrame(): Frame | null {
+    const n = this.frames.length;
+    if (n === 0) return null;
+    const p = Math.max(0, Math.min(n - 1, this.phase));
+    const i = Math.min(n - 2, Math.floor(p));
+    const f = p - i;
+    if (i < 0 || f < 1e-6) return this.frames[Math.round(p)]!;
+    const a = this.frames[i]!;
+    const b = this.frames[i + 1]!;
+    if (f > 1 - 1e-6) return b;
+    const lerp = (x: number[], y: number[]) => x.map((v, k) => v + (y[k]! - v) * f);
+    return { t: a.t + (b.t - a.t) * f, q: lerp(a.q, b.q), qd: lerp(a.qd, b.qd), qdd: lerp(a.qdd, b.qdd) };
   }
 
   /** Positions of every mechanism point at a frame (null = the drawn pose). */
@@ -159,9 +178,11 @@ class MotionUi {
       this.pause();
       return;
     }
-    // Frames per second at real speed: |rate| / spacing between frames.
+    // Frames per second: auto paces one stroke (or revolution) per AUTO_PASS_S;
+    // otherwise a multiple of real time, |rate| / spacing between frames.
     const spacing = Math.abs(this.frames[1]!.t - this.frames[0]!.t) || 1;
-    const fps = (Math.abs(data.rate) / spacing) * this.playbackSpeed;
+    const fps =
+      this.playbackSpeed > 0 ? (Math.abs(data.rate) / spacing) * this.playbackSpeed : (n - 1) / AUTO_PASS_S;
     let p = this.phase + this.#direction * fps * dt;
     if (this.result.res?.fullRotation) {
       // The last frame repeats the first: wrap over n - 1 frames.
@@ -267,9 +288,15 @@ class MotionUi {
 
   /** Default plot: the first traced point's speed, else the first link's angle. */
   #effortPlotted = false;
+  #outputPlotted = false;
 
   ensureDefaultPlot(forces = false): void {
     // The first visit to the Forces plots shows the input torque or force.
+    if (forces && !this.#outputPlotted && this.forceQuantities.some((q) => q.key === 'd:output')) {
+      this.#outputPlotted = true;
+      if (!this.plotKeys.includes('d:output')) this.togglePlot('d:output');
+      return;
+    }
     if (forces && !this.#effortPlotted && this.forceQuantities.length) {
       this.#effortPlotted = true;
       if (!this.plotKeys.some((k) => /^[dfs]:/.test(k))) this.togglePlot('d:effort');
@@ -325,7 +352,14 @@ class MotionUi {
 
   // ------------------------------------------------------------ forces
 
-  setAnalysis(patch: Partial<{ mode: AnalysisMode; gravity: boolean }>): void {
+  setAnalysis(
+    patch: Partial<
+      Pick<
+        ForcesData,
+        'mode' | 'gravity' | 'solveFor' | 'input' | 'outputJoint' | 'inputPoint' | 'outputPoint'
+      >
+    >,
+  ): void {
     store.update((p) => Object.assign(p.forces, patch));
   }
 

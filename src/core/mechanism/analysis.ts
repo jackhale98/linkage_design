@@ -7,6 +7,7 @@
 import { formatNumber } from '../csv/values';
 import type { KinematicSystem } from './kinematics';
 import type { Frame, SweepResult } from './sweep';
+import { jointNames, pointName } from './names';
 import { GROUND } from './types';
 
 export interface MotionUnits {
@@ -17,6 +18,8 @@ export interface MotionUnits {
 export interface Quantity {
   key: string;
   label: string;
+  /** Name within its group (e.g. "speed" under "Point A"). */
+  short: string;
   unit: string;
   group: string;
 }
@@ -70,31 +73,48 @@ export function quantities(sys: KinematicSystem, units: MotionUnits): Quantity[]
     (p) => !sys.model.groundPoints.has(p),
   );
   points.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const names = jointNames(sys.model);
   for (const p of points) {
-    const g = `Point ${p}`;
+    const n = pointName(sys.model, p);
+    const g = `Point ${n}`;
+    const q = (w: string, short: string, unit: string): Quantity => ({
+      key: `p:${p}:${w}`,
+      label: `${n} ${short}`,
+      short,
+      unit,
+      group: g,
+    });
     out.push(
-      { key: `p:${p}:x`, label: `${p} x`, unit: L, group: g },
-      { key: `p:${p}:y`, label: `${p} y`, unit: L, group: g },
-      { key: `p:${p}:v`, label: `${p} speed`, unit: `${L}/s`, group: g },
-      { key: `p:${p}:vx`, label: `${p} vx`, unit: `${L}/s`, group: g },
-      { key: `p:${p}:vy`, label: `${p} vy`, unit: `${L}/s`, group: g },
-      { key: `p:${p}:a`, label: `${p} acceleration`, unit: `${L}/s²`, group: g },
-      { key: `p:${p}:ax`, label: `${p} ax`, unit: `${L}/s²`, group: g },
-      { key: `p:${p}:ay`, label: `${p} ay`, unit: `${L}/s²`, group: g },
+      q('x', 'x', L),
+      q('y', 'y', L),
+      q('v', 'speed', `${L}/s`),
+      q('vx', 'vx', `${L}/s`),
+      q('vy', 'vy', `${L}/s`),
+      q('a', 'acceleration', `${L}/s²`),
+      q('ax', 'ax', `${L}/s²`),
+      q('ay', 'ay', `${L}/s²`),
     );
   }
   for (const b of sys.model.bodies) {
-    const g = `${b.name} (${b.id})`;
+    const q = (w: string, short: string, unit: string): Quantity => ({
+      key: `b:${b.id}:${w}`,
+      label: `${b.name} ${short}`,
+      short,
+      unit,
+      group: b.name,
+    });
     out.push(
-      { key: `b:${b.id}:angle`, label: `${b.name} angle`, unit: A, group: g },
-      { key: `b:${b.id}:omega`, label: `${b.name} angular velocity`, unit: W, group: g },
-      { key: `b:${b.id}:alpha`, label: `${b.name} angular acceleration`, unit: AL, group: g },
+      q('angle', 'angle', A),
+      q('omega', 'angular velocity', W),
+      q('alpha', 'angular acceleration', AL),
     );
   }
   for (const { joint } of angleJoints(sys)) {
+    const n = names.get(joint.id)!;
     out.push({
       key: `j:${joint.id}:angle`,
-      label: `Joint ${joint.id} angle (at ${joint.point})`,
+      label: `${n.short} joint angle`,
+      short: n.long,
       unit: A,
       group: 'Joint angles',
     });

@@ -2,7 +2,7 @@
   import Icon from './Icon.svelte';
   import { inputValue, timeOf } from '../../core/mechanism/analysis';
   import { store } from '../state/project.svelte';
-  import { motionUi } from '../state/motion.svelte';
+  import { AUTO_PASS_S, motionUi } from '../state/motion.svelte';
 
   const frames = $derived(motionUi.frames);
   const data = $derived(motionUi.result.data);
@@ -12,7 +12,7 @@
     rotary ? (store.project.meta.angle_unit === 'deg' ? '°' : ' rad') : ` ${store.project.meta.length_unit}`,
   );
   const symbol = $derived(rotary ? 'θ' : 'L');
-  const SPEEDS = [0.1, 0.25, 0.5, 1, 2, 4];
+  const SPEEDS = [0.1, 0.25, 0.5, 1, 2];
 </script>
 
 {#if frames.length > 1 && data}
@@ -47,11 +47,12 @@
     <select
       class="speed"
       aria-label="Playback speed"
-      title="Playback speed (1× = real time at the driver speed)"
+      title={`Playback speed. Auto: one ${motionUi.result.res?.fullRotation ? 'revolution' : 'stroke'} every ${AUTO_PASS_S} s. 1× = real time at the driver speed.`}
       value={motionUi.playbackSpeed}
       onchange={(e) => (motionUi.playbackSpeed = Number(e.currentTarget.value))}
     >
-      {#each SPEEDS as s (s)}<option value={s}>{s}×</option>{/each}
+      <option value={0}>Auto</option>
+      {#each SPEEDS as s (s)}<option value={s}>{s}× real time</option>{/each}
     </select>
   </div>
 {/if}
@@ -89,8 +90,10 @@
   }
 
   .readout {
+    min-width: 17ch;
     font-size: var(--text-sm);
     font-weight: 600;
+    font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
 

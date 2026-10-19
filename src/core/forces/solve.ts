@@ -10,6 +10,11 @@
 // that joint exerts on each body. The driver row gives the input torque or
 // actuator force.
 //
+// Solving for the output instead: the known input torque (or actuator force)
+// is applied as a load, the driver row is dropped, and the output joint gets
+// a row that holds the output link (its angle, or its position along a ground
+// slot). That row's multiplier is the torque or force the output delivers.
+//
 // Units: lengths, forces and angles in project units; mass in kg (N) or
 // lb (lbf). Power is reported in watts.
 
@@ -44,9 +49,18 @@ export interface ForceFrame {
   power: number;
   /** Spring tension (springs) or torque (torsion), by load ID. */
   springs: Map<string, number>;
+  /** Torque (or force along the slot) the output delivers to its load; NaN when solving for the input. */
+  output: number;
+  /** The input and output as forces at the chosen points (at right angles to the radius); NaN if unset. */
+  inputForce: number;
+  outputForce: number;
   /** Virtual-work balance residual, relative to the largest power term (should be ~0). */
   balance: number;
 }
+
+/** How the output is held when solving for it. */
+type Output =
+  { kind: 'rotary'; body: number; point: Vec } | { kind: 'linear'; body: number; attach: Attach; u: Vec };
 
 export interface ForceResult {
   frames: ForceFrame[];
@@ -164,7 +178,74 @@ export function solveForces(
       issues.push(`Load ${l.id} is on ${l.body}, which isn't a moving link; it is ignored`);
   }
 
+  const loadScale: number[] = [];
+  // Solving for the output: which joint, and what it holds.
+  let output: Output | null = null;
+  if (forces.solveFor === 'output') {
+    const j = sys.model.joints.find((x) => x.id === forces.outputJoint);
+    const grounded = j && (j.a === GROUND) !== (j.b === GROUND);
+    if (!j) issues.push('Choose the output joint: a pivot or slot on ground');
+    else if (!grounded) issues.push(`The output ${j.id} must connect a link to ground`);
+    else {
+      const body = j.a === GROUND ? j.b : j.a;
+      const i = sys.bodyIndex.get(body)!;
+      if (j.type === 'revolute')
+        output = { kind: 'rotary', body: i, point: sys.model.positions.get(j.point)! };
+      else if (j.a === GROUND) {
+        const [p1, p2] = sys.model.lineEnds.get(j.line)!;
+        const a = sys.model.positions.get(p1)!;
+        const b = sys.model.positions.get(p2)!;
+        const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+        output = {
+          kind: 'linear',
+          body: i,
+          attach: sys.attach(j.point, body),
+          u: [(b[0] - a[0]) / len, (b[1] - a[1]) / len],
+        };
+      } else issues.push('A ground pin in a moving slot cannot be the output; pick a pivot instead');
+    }
+  }
+  const solveOutput = forces.solveFor === 'output' && !!output;
+
+  // Lever arms for expressing torques as forces at a point (constant: same rigid link).
+  const armTo = (pivot: Vec | undefined, p: string) => {
+    const at = p ? sys.model.positions.get(p) : undefined;
+    const r = pivot && at ? Math.hypot(at[0] - pivot[0], at[1] - pivot[1]) : 0;
+    return r > 1e-9 * sys.scale ? r : NaN;
+  };
+  const d0 = sys.driver;
+  const inputPivot =
+    d0.type === 'rotary'
+      ? sys.model.joints.find(
+          (j) =>
+            j.type === 'revolute' &&
+            (j.a === d0.body || j.b === d0.body) &&
+            (j.a === d0.refBody || j.b === d0.refBody),
+        )?.point
+      : undefined;
+  const inputArm =
+    d0.type === 'rotary'
+      ? armTo(inputPivot ? sys.model.positions.get(inputPivot) : undefined, forces.inputPoint)
+      : NaN;
+  const outputArm = output?.kind === 'rotary' ? armTo(output.point, forces.outputPoint) : NaN;
+
   const out: ForceFrame[] = frames.map((f) => frameForces(f));
+  // Reactions that cancel exactly come out as round-off (~1e-15 of the
+  // loads); report them as exact zeros so they don't show as tiny forces.
+  const tol = 1e-9 * Math.max(0, ...loadScale);
+  const clean = (v: number, t: number) => (Math.abs(v) <= t ? 0 : v);
+  for (const fr of out) {
+    for (const r of fr.joints.values()) {
+      r.fx = clean(r.fx, tol);
+      r.fy = clean(r.fy, tol);
+      r.moment = clean(r.moment, tol * sys.scale);
+    }
+    fr.driver = clean(fr.driver, sys.driver.type === 'rotary' ? tol * sys.scale : tol);
+    fr.power = fr.driver * rate * toWatts;
+    fr.output = clean(fr.output, output?.kind === 'rotary' ? tol * sys.scale : tol);
+    fr.inputForce = fr.driver / inputArm;
+    fr.outputForce = fr.output / outputArm;
+  }
   return { frames: out, indeterminate, issues };
 
   function frameForces(f: Frame): ForceFrame {
@@ -233,6 +314,24 @@ export function solveForces(
       }
     }
 
+    // Solving for the output: the known input acts as a load.
+    const d = sys.driver!;
+    if (solveOutput) {
+      if (d.type === 'rotary') {
+        addTorque(d.body, forces.input);
+        addTorque(d.refBody, -forces.input);
+      } else {
+        const A = pointPos(d.pointA);
+        const B = pointPos(d.pointB);
+        if (A && B) {
+          const len = Math.hypot(A[0] - B[0], A[1] - B[1]) || 1;
+          const e: Vec = [(A[0] - B[0]) / len, (A[1] - B[1]) / len];
+          addForce(d.bodyA, A, [e[0] * forces.input, e[1] * forces.input]);
+          addForce(d.bodyB, B, [-e[0] * forces.input, -e[1] * forces.input]);
+        }
+      }
+    }
+
     // Gravity and (kinetostatic) inertia at each centre of mass.
     for (const [id, m] of mp) {
       const com = sys.pos(f.q, m.at);
@@ -246,11 +345,35 @@ export function solveForces(
       }
     }
 
+    let qs = 0;
+    for (let k = 0; k < n; k++) qs = Math.max(qs, Math.abs(Q[k]!) / (k % 3 === 2 ? sys.scale : 1));
+    loadScale.push(qs);
+
     // Phi_q^T lambda = Q: a direct solve when square (the usual case); least
     // squares (minimum-norm) when constraints are redundant.
+    // Solving for the output, the driver row is replaced by one holding the output.
     const J = sys.jacobian(f.q);
-    const JT = Array.from({ length: n }, (_, c) => J.map((row) => row[c]!));
-    const lambda = (!indeterminate && J.length === n && solveSquare(JT, Q)) || solveDamped(JT, Q, 1e-12);
+    const active = J.map((_, k) => k).filter((k) => !(solveOutput && k === driverRow));
+    const M = active.map((k) => J[k]!);
+    let outRow: number[] | null = null;
+    if (solveOutput && output) {
+      outRow = new Array<number>(n).fill(0);
+      const i = output.body;
+      if (output.kind === 'rotary') outRow[3 * i + 2] = sys.scale;
+      else
+        for (let c = 0; c < 3; c++) {
+          const e = new Array<number>(n).fill(0);
+          e[3 * i + c] = 1;
+          const v = sys.vel(f.q, e, output.attach);
+          outRow[3 * i + c] = output.u[0] * v[0] + output.u[1] * v[1];
+        }
+      M.push(outRow);
+    }
+    const MT = Array.from({ length: n }, (_, c) => M.map((row) => row[c]!));
+    const sol = (!indeterminate && M.length === n && solveSquare(MT, Q)) || solveDamped(MT, Q, 1e-12);
+    const lambda = new Array<number>(J.length).fill(0);
+    active.forEach((k, r) => (lambda[k] = sol[r]!));
+    const lamOut = outRow ? sol[active.length]! : 0;
 
     // Constraint force on each body from each joint: -(rows of Phi_q)^T lambda.
     const joints = new Map<string, JointForce>();
@@ -278,7 +401,8 @@ export function solveForces(
 
     // Driver effort: the generalized force its row applies to the driven body.
     let driver = 0;
-    if (driverRow >= 0) {
+    if (solveOutput) driver = forces.input;
+    else if (driverRow >= 0) {
       const lam = lambda[driverRow]!;
       if (sys.driver!.type === 'rotary') {
         const i = sys.bodyIndex.get(sys.driver!.body)!;
@@ -297,7 +421,31 @@ export function solveForces(
       loadPower += term;
       scale = Math.max(scale, Math.abs(term));
     }
-    const balance = scale > 0 ? Math.abs(loadPower + driver * rate) / scale : 0;
-    return { joints, driver, power, springs, balance };
+    // The output holder's generalized force is -outRow * lamOut; the output
+    // delivers the opposite to its load.
+    let outputValue = NaN;
+    let effortPower = driver * rate;
+    if (outRow && output) {
+      const i = output.body;
+      const hold = output.kind === 'rotary' ? -outRow[3 * i + 2]! * lamOut : -lamOut;
+      outputValue = -hold;
+      // Rate of the output coordinate (angle, or position along the slot).
+      let speed = 0;
+      if (output.kind === 'rotary') speed = f.qd[3 * i + 2]! * rate;
+      else for (let c = 0; c < 3; c++) speed += outRow[3 * i + c]! * f.qd[3 * i + c]! * rate;
+      effortPower = hold * speed;
+      scale = Math.max(scale, Math.abs(effortPower));
+    }
+    const balance = scale > 0 ? Math.abs(loadPower + effortPower) / scale : 0;
+    return {
+      joints,
+      driver,
+      power,
+      output: outputValue,
+      inputForce: NaN,
+      outputForce: NaN,
+      springs,
+      balance,
+    };
   }
 }

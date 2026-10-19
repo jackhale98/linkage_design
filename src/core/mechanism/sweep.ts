@@ -127,10 +127,13 @@ export function sweep(sys: KinematicSystem, range: SweepRange): SweepResult {
   const lo = Math.min(range.start, range.end);
   const hi = Math.max(range.start, range.end);
   if (d.type === 'rotary') {
+    // The turn of the drawn angle closest to the range (inside it when possible),
+    // so a pose drawn just outside the range walks the short way in.
+    const gap = (t: number) => Math.max(lo - t, 0, t - hi);
     const k = Math.round(((lo + hi) / 2 - t0) / TWO_PI);
-    t0 += k * TWO_PI;
-    if (t0 < lo - 1e-9) t0 += TWO_PI;
-    if (t0 > hi + 1e-9) t0 -= TWO_PI;
+    let best = t0 + k * TWO_PI;
+    for (const c of [best - TWO_PI, best + TWO_PI]) if (gap(c) < gap(best) - 1e-12) best = c;
+    t0 = best;
   }
 
   const q0 = sys.q0();

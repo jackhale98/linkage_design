@@ -3,6 +3,7 @@
   import NumberField from './NumberField.svelte';
   import { massUnit, LOAD_TYPES, type Load, type LoadType } from '../../core/forces/types';
   import { GROUND } from '../../core/mechanism/types';
+  import { jointNames } from '../../core/mechanism/names';
   import { store } from '../state/project.svelte';
   import { motionUi } from '../state/motion.svelte';
 
@@ -23,10 +24,45 @@
   );
   const bodyName = (id: string) =>
     id === GROUND ? 'ground' : (project.mechanism.bodies.find((b) => b.id === id)?.name ?? id);
-  const pointLabel = (p: string) => {
-    const label = project.sketch.points.find((x) => x.id === p)?.label;
-    return label ? `${p} · ${label}` : p;
-  };
+  const pointLabel = (p: string) => model.pointNames.get(p) ?? p;
+  const names = $derived(jointNames(model));
+  const jointLabel = (id: string) => names.get(id)?.long ?? id;
+
+  // Solving for the output: candidate output joints (a pivot to ground, or a pin or block in a ground slot).
+  const outputs = $derived(
+    model.joints.filter(
+      (j) => (j.a === GROUND) !== (j.b === GROUND) && (j.type === 'revolute' || j.a === GROUND),
+    ),
+  );
+  const driver = $derived(model.driver);
+  const rotaryIn = $derived(driver?.type === 'rotary');
+  const inputPivot = $derived(
+    driver?.type === 'rotary'
+      ? model.joints.find(
+          (j) =>
+            j.type === 'revolute' &&
+            (j.a === driver.body || j.b === driver.body) &&
+            (j.a === driver.refBody || j.b === driver.refBody),
+        )
+      : undefined,
+  );
+  const outJoint = $derived(model.joints.find((j) => j.id === forces.outputJoint));
+  const pointsOf = (body: string | undefined, except?: string) =>
+    (model.bodies.find((b) => b.id === body)?.points ?? []).filter((p) => p !== except);
+
+  function solveForOutput() {
+    // Default output: a simple link (fewest joints, like a crank or rocker) far from the input pivot.
+    const joints = (body: string) => model.joints.filter((j) => j.a === body || j.b === body).length;
+    const pos = (p?: string) => (p ? model.positions.get(p) : undefined);
+    const from = pos(inputPivot?.point) ?? [0, 0];
+    const dist = (p: string) => Math.hypot(pos(p)![0] - from[0], pos(p)![1] - from[1]);
+    const ranked = outputs
+      .filter((j) => j.id !== inputPivot?.id)
+      .map((j) => ({ j, n: joints(j.a === GROUND ? j.b : j.a), d: dist(j.point) }))
+      .sort((x, y) => x.n - y.n || y.d - x.d);
+    const pick = forces.outputJoint || ranked[0]?.j.id || outputs[0]?.id || '';
+    motionUi.setAnalysis({ solveFor: 'output', outputJoint: pick, input: forces.input || 100 });
+  }
   const allPoints = $derived(
     [...new Set([...model.bodies.flatMap((b) => b.points), ...model.groundPoints])].sort((a, b) =>
       a.localeCompare(b, undefined, { numeric: true }),
@@ -50,7 +86,7 @@
       case 'spring':
         return `${l.point}–${l.pointB}, k = ${l.k} ${F}/${L}`;
       case 'torsion':
-        return `at ${l.joint}, k = ${l.k} ${F}·${L}/${A}`;
+        return `at ${jointLabel(l.joint)}, k = ${l.k} ${F}·${L}/${A}`;
     }
   }
 
@@ -112,6 +148,81 @@
     />
     Gravity (downward, −y)
   </label>
+</section>
+
+<section>
+  <h3>Solve for</h3>
+  <div class="seg" role="radiogroup" aria-label="Solve for">
+    <button
+      role="radio"
+      aria-checked={forces.solveFor === 'input'}
+      class:on={forces.solveFor === 'input'}
+      onclick={() => motionUi.setAnalysis({ solveFor: 'input' })}
+    >
+      Input needed
+    </button>
+    <button
+      role="radio"
+      aria-checked={forces.solveFor === 'output'}
+      class:on={forces.solveFor === 'output'}
+      onclick={solveForOutput}
+    >
+      Output from input
+    </button>
+  </div>
+  <p class="muted small">
+    {forces.solveFor === 'input'
+      ? `The loads are known: finds the ${rotaryIn ? 'torque' : 'force'} the input needs at each position to drive them.`
+      : `The input ${rotaryIn ? 'torque' : 'force'} is known: finds what the output delivers, and the force at every joint.`}
+  </p>
+  {#if forces.solveFor === 'output'}
+    <NumberField
+      label={rotaryIn ? 'Input torque (counterclockwise +)' : 'Actuator force (+ pushes apart)'}
+      unit={rotaryIn ? `${F}·${L}` : F}
+      value={forces.input}
+      oncommit={(v) => motionUi.setAnalysis({ input: v })}
+    />
+    <label class="field">
+      <span>Output at</span>
+      <select
+        class="select"
+        value={forces.outputJoint}
+        onchange={(e) => motionUi.setAnalysis({ outputJoint: e.currentTarget.value, outputPoint: '' })}
+      >
+        <option value="" disabled>Choose a pivot or slot on ground</option>
+        {#each outputs as j (j.id)}<option value={j.id}>{jointLabel(j.id)}</option>{/each}
+      </select>
+    </label>
+    {#if outJoint?.type === 'revolute'}
+      {@const pts = pointsOf(outJoint.a === GROUND ? outJoint.b : outJoint.a, outJoint.point)}
+      <label class="field">
+        <span>Show the output as a force at</span>
+        <select
+          class="select"
+          value={forces.outputPoint}
+          onchange={(e) => motionUi.setAnalysis({ outputPoint: e.currentTarget.value })}
+        >
+          <option value="">(torque only)</option>
+          {#each pts as p (p)}<option value={p}>{pointLabel(p)}</option>{/each}
+        </select>
+      </label>
+    {/if}
+  {/if}
+  {#if rotaryIn && driver?.type === 'rotary'}
+    <label class="field">
+      <span>Show the input as a force at</span>
+      <select
+        class="select"
+        value={forces.inputPoint}
+        onchange={(e) => motionUi.setAnalysis({ inputPoint: e.currentTarget.value })}
+      >
+        <option value="">(torque only)</option>
+        {#each pointsOf(driver.body, inputPivot?.point) as p (p)}<option value={p}>{pointLabel(p)}</option
+          >{/each}
+      </select>
+    </label>
+    <p class="muted small">A force at a point means the push at right angles to the line from the pivot.</p>
+  {/if}
 </section>
 
 <section>
@@ -177,6 +288,16 @@
                 value={l.torque}
                 oncommit={(v) => update(l.id, { torque: v })}
               />
+              {#if driver?.type === 'rotary' && l.body === driver.body && forces.solveFor === 'input'}
+                <p class="note small">
+                  <Icon name="info" size={13} />
+                  <span>
+                    This torque is on the driven link, so the driver simply cancels it and no joint carries a
+                    load. To see what an input torque produces at another joint, set Solve for to
+                    <em>Output from input</em>.
+                  </span>
+                </p>
+              {/if}
             {:else if l.type === 'spring'}
               <div class="grid2">
                 <label class="field">
@@ -379,6 +500,18 @@
     gap: var(--space-3);
     padding-top: var(--space-4);
     border-top: 1px solid var(--border);
+  }
+
+  .note {
+    display: flex;
+    gap: 6px;
+    margin: 0;
+    color: var(--text-muted);
+  }
+
+  .note :global(svg) {
+    flex: none;
+    margin-top: 2px;
   }
 
   .seg {

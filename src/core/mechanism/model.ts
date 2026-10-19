@@ -66,6 +66,8 @@ export interface MechanismModel {
   actuatorLine: string | null;
   issues: MechanismIssue[];
   positions: Map<string, [number, number]>;
+  /** Display name of every point: its sketch label, else its ID (unique). */
+  pointNames: Map<string, string>;
   /** End points of every sketch line. */
   lineEnds: Map<string, [string, string]>;
 }
@@ -183,6 +185,7 @@ export function buildModel(sketch: Sketch, mech: MechanismData): MechanismModel 
   const issues: MechanismIssue[] = [];
   const ends = lineEnds(sketch);
   const positions = new Map(sketch.points.map((p) => [p.id, [p.x, p.y] as [number, number]]));
+  const pointNames = displayNames(sketch);
   const actuator = actuatorLineOf(sketch, mech.driver);
   const groundLines = groundConstruction(sketch, actuator);
   const groundPoints = new Set(sketch.points.filter((p) => p.fixed).map((p) => p.id));
@@ -356,6 +359,20 @@ export function buildModel(sketch: Sketch, mech: MechanismData): MechanismModel 
     actuatorLine: actuator,
     issues,
     positions,
+    pointNames,
     lineEnds: lineEnds(sketch),
   };
+}
+
+/** Labels where they are unique and don't clash with an ID; IDs otherwise. */
+function displayNames(sketch: Sketch): Map<string, string> {
+  const ids = new Set(sketch.points.map((p) => p.id));
+  const count = new Map<string, number>();
+  for (const p of sketch.points) if (p.label) count.set(p.label, (count.get(p.label) ?? 0) + 1);
+  return new Map(
+    sketch.points.map((p) => {
+      const ok = p.label && count.get(p.label) === 1 && (!ids.has(p.label) || p.label === p.id);
+      return [p.id, ok ? p.label : p.label ? `${p.label} (${p.id})` : p.id];
+    }),
+  );
 }

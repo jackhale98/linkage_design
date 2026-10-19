@@ -25,7 +25,8 @@ Phases 0–3 are complete:
 - **Forces:**
   - applied forces, torques, springs and torsion springs, gravity, and link masses;
   - static or kinetostatic (inertia) analysis at every position;
-  - joint reactions and the required input torque or actuator force, drawn on the mechanism, plotted, and exported to CSV;
+  - solve either way: the input torque or actuator force the loads need, or, from a known input, the torque or force at an output joint and the mechanical advantage;
+  - joint reactions, drawn on the mechanism, plotted, and exported to CSV; torques can also be shown as the force at a point (e.g. a handle or crank pin);
   - a virtual-work power balance check.
 - **Diagnostics:** when a sketch or mechanism has extra degrees of freedom, arrows show which points can still move and which way, and loose links are highlighted.
 - **Examples:** four-bar, slider-crank, quick-return and hydraulic boom.

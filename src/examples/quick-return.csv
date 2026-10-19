@@ -69,8 +69,13 @@ trace,P4
 id,type,body,point,point_b,joint,fx,fy,frame,torque,k,free,preload
 F1,force,B2,P4,,,-200,0,global,0,0,,0
 
-# mode: static (applied loads only) or kinetostatic (plus inertia at the driver speed). gravity acts in -y.
+# mode: static (applied loads only) or kinetostatic (plus inertia at the driver speed). gravity acts in -y. solve_for: input (find the input torque the loads need) or output (given the input torque, find the output at output_joint). input_point / output_point express those torques as forces at a point.
 [analysis]
 key,value
 mode,kinetostatic
 gravity,1
+solve_for,input
+input,0
+output_joint,
+input_point,
+output_point,

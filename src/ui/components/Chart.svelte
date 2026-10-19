@@ -31,6 +31,29 @@
 
   const css = (name: string) => getComputedStyle(host).getPropertyValue(name).trim();
 
+  /**
+   * A y-range that ignores isolated spikes (e.g. a torque that grows without
+   * bound at a dead point), so the rest of the curve stays readable. Null when
+   * the data has no such outliers.
+   */
+  const clip = $derived.by(() => {
+    const vals = series.flatMap((s) => s.values.filter(Number.isFinite));
+    if (vals.length < 10) return null;
+    const sorted = [...vals].sort((a, b) => a - b);
+    const q = (f: number) => sorted[Math.min(sorted.length - 1, Math.floor(f * (sorted.length - 1)))]!;
+    const lo = q(0.05);
+    const hi = q(0.95);
+    const span = Math.max(hi - lo, Math.abs(hi), Math.abs(lo), 1e-12);
+    const min = sorted[0]!;
+    const max = sorted[sorted.length - 1]!;
+    if (max - min < 6 * span) return null;
+    return {
+      range: [Math.min(lo - span * 0.5, 0), Math.max(hi + span * 0.5, 0)] as [number, number],
+      min,
+      max,
+    };
+  });
+
   function options(width: number, height: number): uPlot.Options {
     const ink = css('--text-muted');
     const grid = css('--chart-grid');
@@ -51,7 +74,7 @@
       padding: [8, 12, 0, 4],
       legend: { show: true, live: true },
       cursor: { drag: { x: false, y: false }, points: { size: 8, width: 2 } },
-      scales: { x: { time: false } },
+      scales: clip ? { x: { time: false }, y: { range: clip.range } } : { x: { time: false } },
       axes: [axis(xLabel), { ...axis(unit), size: 56 }],
       series: [
         { label: xLabel, value: (_u, v) => (v == null ? '–' : fmt(v)) },
@@ -126,6 +149,12 @@
 </script>
 
 <div class="chart" bind:this={host}></div>
+{#if clip}
+  <p class="clipped">
+    Spikes are off-scale (from {fmt(clip.min)} to {fmt(clip.max)}
+    {unit}), typically where the output stops and reverses.
+  </p>
+{/if}
 
 <style>
   .chart {
@@ -149,6 +178,12 @@
 
   .chart :global(.u-legend td) {
     font-variant-numeric: tabular-nums;
+  }
+
+  .clipped {
+    margin: 2px 0 0;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
   }
 
   .chart :global(.u-over) {

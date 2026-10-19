@@ -58,3 +58,26 @@ test('plots the input torque', async ({ page }) => {
   await expect(page.locator('.u-wrap')).toHaveCount(1);
   await expect(page.getByRole('checkbox', { name: /^Input torque\b/ })).toBeChecked();
 });
+
+test('solves for the output torque from a known input torque', async ({ page }) => {
+  await panel(page).getByRole('radio', { name: 'Output from input' }).click();
+  await panel(page).getByLabel('Input torque (counterclockwise +)').fill('1000');
+  await panel(page).getByLabel('Input torque (counterclockwise +)').press('Enter');
+  await expect(panel(page).getByLabel('Output at')).toHaveValue(/J\d+/);
+  await panel(page).getByLabel('Show the input as a force at').selectOption({ label: 'A' });
+  await expect(page.locator('path.torque.output')).toHaveCount(1);
+
+  await page.getByRole('tab', { name: 'Results' }).click();
+  await expect(page.getByRole('heading', { name: 'Input torque (given)' })).toBeVisible();
+  await expect(page.getByText('As a force at A: 20 N')).toBeVisible(); // 1000 N·mm on a 50 mm crank
+  await expect(page.getByRole('heading', { name: 'Output torque' })).toBeVisible();
+  await expect(page.getByText(/mechanical advantage/)).toBeVisible();
+});
+
+test('names joints by point and links, and highlights them on hover', async ({ page }) => {
+  await page.getByRole('tab', { name: 'Results' }).click();
+  const row = page.locator('tr', { hasText: 'Coupler – Rocker' }).last();
+  await expect(row).toContainText('B');
+  await row.hover();
+  await expect(page.locator('circle.hover-ring')).toHaveCount(1);
+});

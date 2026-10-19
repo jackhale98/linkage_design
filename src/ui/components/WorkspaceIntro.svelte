@@ -58,7 +58,7 @@
   {:else if !mechanismReady}
     <div class="hint" role="status">Set a driver in the panel on the right to animate the mechanism</div>
   {:else if workspace === 'forces'}
-    <div class="hint" role="status">Orange: loads · purple: joint reactions · teal: input</div>
+    <div class="hint" role="status">Orange: loads · purple: joint reactions and output · teal: input</div>
   {/if}
 {:else}
   {@const intro = LATER[workspace]}

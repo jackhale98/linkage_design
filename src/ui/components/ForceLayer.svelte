@@ -4,7 +4,18 @@
 
   type Vec = [number, number];
 
-  let { view, size, overlay }: { view: View; size: Size; overlay: ForceOverlay } = $props();
+  let {
+    view,
+    size,
+    overlay,
+    values = true,
+  }: {
+    view: View;
+    size: Size;
+    overlay: ForceOverlay;
+    /** Show value labels (hidden during playback, where they change too fast to read). */
+    values?: boolean;
+  } = $props();
 
   const S = (p: Vec): Vec => worldToScreen(view, size, p[0], p[1]);
   /** Pixels per force unit: the largest force over the sweep draws 90 px long. */
@@ -95,7 +106,7 @@
 
   {#each arrows as a (a.key)}
     <path d={a.d} class="arrow {a.kind}" />
-    {#if a.label}
+    {#if a.label && values}
       <text x={a.tip[0]} y={a.tip[1]} text-anchor={a.anchor} class="label {a.kind}">{a.label}</text>
     {/if}
   {/each}
@@ -103,7 +114,7 @@
   {#each overlay.torques as t (t.key)}
     {@const g = arc(S(t.at), t.T)}
     <path d={g.d} class="torque {t.kind}" />
-    <text x={g.label[0]} y={g.label[1]} class="label {t.kind}">{t.label}</text>
+    {#if values}<text x={g.label[0]} y={g.label[1]} class="label {t.kind}">{t.label}</text>{/if}
   {/each}
 </g>
 
@@ -139,6 +150,12 @@
 
   .torque.driver {
     stroke: var(--accent);
+  }
+
+  .arrow.output,
+  .torque.output {
+    stroke: var(--load-reaction);
+    stroke-width: 3;
   }
 
   .spring {
@@ -180,5 +197,9 @@
 
   .label.driver {
     fill: var(--accent);
+  }
+
+  .label.output {
+    fill: var(--load-reaction);
   }
 </style>

@@ -127,6 +127,27 @@ describe('four-bar driven by its rocker', () => {
   });
 });
 
+describe('drawn pose outside the requested range', () => {
+  it('walks the short way into the range rather than a full turn round', () => {
+    const sk = fourBar(50, 110, 90, 140, 60);
+    const mech = emptyMechanism();
+    rotaryDriver(mech, 'L4', 0, 360, 360);
+    const { sys } = build(sk, mech);
+    // The rocker swings a limited arc; ask for a range just below its drawn angle,
+    // written in 0..2 pi so the drawn angle (about -80 deg) needs a turn added.
+    const full = sweep(sys, { start: 0, end: 2 * Math.PI, steps: 360 });
+    const t0 = sys.driver!.t0 + 2 * Math.PI;
+    const start = full.limits.start! + 0.005;
+    const end = t0 - 0.01;
+    expect(end).toBeGreaterThan(start);
+    const res = sweep(sys, { start, end, steps: 20 });
+    expect(res.error).toBeUndefined();
+    const reached = res.frames.filter((f) => f !== null);
+    expect(reached).toHaveLength(21);
+    expect(reached[0]!.t).toBeCloseTo(start, 12);
+  });
+});
+
 describe('offset slider-crank', () => {
   const r = 40;
   const l = 120;

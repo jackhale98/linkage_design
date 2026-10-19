@@ -7,6 +7,8 @@ import type { MotionResult } from '../../core/mechanism/motion';
 import type { Frame } from '../../core/mechanism/sweep';
 import { GROUND, type Body } from '../../core/mechanism/types';
 import { centroid } from '../../core/forces/solve';
+import { jointNames } from '../../core/mechanism/names';
+import { formatValue } from './format';
 
 type Vec = [number, number];
 
@@ -14,7 +16,7 @@ export interface Arrow {
   key: string;
   at: Vec;
   F: Vec;
-  kind: 'applied' | 'gravity' | 'reaction';
+  kind: 'applied' | 'gravity' | 'reaction' | 'output';
   label: string;
 }
 
@@ -22,7 +24,7 @@ export interface TorqueMark {
   key: string;
   at: Vec;
   T: number;
-  kind: 'applied' | 'driver';
+  kind: 'applied' | 'driver' | 'output';
   label: string;
 }
 
@@ -35,12 +37,7 @@ export interface ForceOverlay {
   maxForce: number;
 }
 
-/** Formats a value, showing round-off below `noise` as 0. */
-const fmt = (v: number, noise = 0) => {
-  const a = Math.abs(v);
-  if (a <= noise) return '0';
-  return a >= 1000 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : v.toPrecision(3);
-};
+const fmt = formatValue;
 
 export function forceOverlay(
   motion: MotionResult,
@@ -70,15 +67,9 @@ export function forceOverlay(
     return sys.pos(frame.q, sys.attachPosition([b.comX ?? c[0], b.comY ?? c[1]], b.id));
   };
 
-  // Sweep-wide scales: values a million times smaller are round-off.
   let maxForce = 1e-12;
-  let maxEffort = 0;
-  for (const fr of result.frames) {
+  for (const fr of result.frames)
     for (const r of fr.joints.values()) maxForce = Math.max(maxForce, Math.hypot(r.fx, r.fy));
-    maxEffort = Math.max(maxEffort, Math.abs(fr.driver));
-  }
-  const fNoise = maxForce * 1e-6;
-  const eNoise = maxEffort * 1e-6;
 
   const arrows: Arrow[] = [];
   const torques: TorqueMark[] = [];
@@ -128,16 +119,17 @@ export function forceOverlay(
     }
   }
   if (show.reactions) {
+    const names = jointNames(model);
     for (const j of model.joints) {
       const r = ff.joints.get(j.id);
       const at = r && pointAt(j.point, r.on);
-      if (!r || !at) continue;
+      if (!r || !at || (r.fx === 0 && r.fy === 0)) continue;
       arrows.push({
         key: `r:${j.id}`,
         at,
         F: [r.fx, r.fy],
         kind: 'reaction',
-        label: `${j.id} ${fmt(Math.hypot(r.fx, r.fy), fNoise)} ${F}`,
+        label: `${names.get(j.id)!.short} ${fmt(Math.hypot(r.fx, r.fy))} ${F}`,
       });
     }
   }
@@ -156,7 +148,7 @@ export function forceOverlay(
         at,
         T: ff.driver,
         kind: 'driver',
-        label: `Input ${fmt(ff.driver, eNoise)} ${torqueUnit}`,
+        label: `Input ${fmt(ff.driver)} ${torqueUnit}`,
       });
   } else if (d?.type === 'linear') {
     const a = pointAt(d.pointA, d.bodyA);
@@ -169,7 +161,36 @@ export function forceOverlay(
         at: b,
         F: [e[0] * ff.driver, e[1] * ff.driver],
         kind: 'applied',
-        label: `Actuator ${fmt(ff.driver, eNoise)} ${F}`,
+        label: `Actuator ${fmt(ff.driver)} ${F}`,
+      });
+    }
+  }
+
+  // Solving for the output: what it delivers, at the output joint.
+  const oj = forces.solveFor === 'output' ? model.joints.find((j) => j.id === forces.outputJoint) : undefined;
+  if (oj && Number.isFinite(ff.output)) {
+    const body = oj.a === GROUND ? oj.b : oj.a;
+    const at = pointAt(oj.point, body);
+    if (at && oj.type === 'revolute')
+      torques.push({
+        key: 'output',
+        at,
+        T: ff.output,
+        kind: 'output',
+        label: `Output ${fmt(ff.output)} ${torqueUnit}`,
+      });
+    else if (at) {
+      const [p1, p2] = model.lineEnds.get(oj.line)!;
+      const a = model.positions.get(p1)!;
+      const b = model.positions.get(p2)!;
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      const u: Vec = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+      arrows.push({
+        key: 'output',
+        at,
+        F: [u[0] * ff.output, u[1] * ff.output],
+        kind: 'output',
+        label: `Output ${fmt(ff.output)} ${F}`,
       });
     }
   }

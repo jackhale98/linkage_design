@@ -1,5 +1,8 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import JointLabel from './JointLabel.svelte';
+  import { pointName } from '../../core/mechanism/names';
+  import { formatValue as sig } from '../lib/format';
   import { resultsTable, summarize } from '../../core/mechanism/analysis';
   import { forcesTable, summarizeForces } from '../../core/forces/analysis';
   import { stringifyCsv, BOM } from '../../core/csv/rfc4180';
@@ -19,10 +22,14 @@
   const rotary = $derived(result.model.driver?.type === 'rotary');
   const effortUnit = $derived(rotary ? `${F}·${len}` : F);
   const inputUnit = $derived(rotary ? angleUnit : ` ${len}`);
-  const sig = (v: number) => {
-    const a = Math.abs(v);
-    return a >= 1000 ? v.toFixed(0) : a >= 100 ? v.toFixed(1) : a >= 1 ? v.toFixed(2) : v.toPrecision(3);
-  };
+  const outJoint = $derived(result.model.joints.find((j) => j.id === store.project.forces.outputJoint));
+  const rangeText = (r: { min: number; max: number }) =>
+    sig(r.min) === sig(r.max) ? sig(r.min) : `${sig(r.min)} to ${sig(r.max)}`;
+  /** Hovering a row highlights its joint on the canvas. */
+  const hover = (point: string | null) => () => (motionUi.hover = point);
+  const noJointForces = $derived(
+    !!forceSummary && forceSummary.joints.every((j) => j.max === 0) && forceSummary.effort.rms > 0,
+  );
 
   function exportForces() {
     if (!data) return;
@@ -80,8 +87,8 @@
           <tbody>
             {#each summary.jointAngles as j (j.id)}
               {@const worstDeg = angleUnit === '°' ? j.worst : (j.worst * 180) / Math.PI}
-              <tr>
-                <td>{j.id} at {j.point}</td>
+              <tr onmouseenter={hover(j.point)} onmouseleave={hover(null)}>
+                <td><JointLabel model={result.model} id={j.id} /></td>
                 <td class="num">{fmt(j.min)}{angleUnit}</td>
                 <td class="num">{fmt(j.max)}{angleUnit}</td>
                 <td class="num" class:warn={worstDeg > 50}>
@@ -113,32 +120,76 @@
 
     {#if forceSummary}
       {@const fs = forceSummary}
+      {@const solveOutput = !!fs.output}
       <section class="card">
         <h3>
-          {rotary ? 'Input torque' : 'Actuator force'} ({store.project.forces.mode === 'static'
-            ? 'static'
-            : 'with inertia'})
+          {rotary ? 'Input torque' : 'Actuator force'}
+          ({solveOutput ? 'given' : store.project.forces.mode === 'static' ? 'static' : 'with inertia'})
         </h3>
-        <p class="big num">{sig(fs.effort.min)} to {sig(fs.effort.max)} {effortUnit}</p>
-        <p class="muted num">
-          RMS {sig(fs.effort.rms)}
-          {effortUnit} · peak at {fmt(fs.effort.atMax)}{inputUnit} · peak power {sig(fs.power.peak)} W
-        </p>
+        {#if solveOutput}
+          <p class="big num">{sig(store.project.forces.input)} {effortUnit}</p>
+        {:else}
+          <p class="big num">{sig(fs.effort.min)} to {sig(fs.effort.max)} {effortUnit}</p>
+          <p class="muted num">
+            RMS {sig(fs.effort.rms)}
+            {effortUnit} · peak at {fmt(fs.effort.atMax)}{inputUnit} · peak power {sig(fs.power.peak)} W
+          </p>
+        {/if}
+        {#if fs.inputForce}
+          <p class="muted num">
+            As a force at {pointName(result.model, store.project.forces.inputPoint)}:
+            {rangeText(fs.inputForce)}
+            {F}
+          </p>
+        {/if}
       </section>
+      {#if fs.output}
+        {@const rotaryOut = outJoint?.type === 'revolute'}
+        <section class="card">
+          <h3>Output {rotaryOut ? 'torque' : 'force'}</h3>
+          {#if outJoint}<p class="muted"><JointLabel model={result.model} id={outJoint.id} /></p>{/if}
+          <p class="big num">typically {sig(fs.output.typical)} {rotaryOut ? `${F}·${len}` : F}</p>
+          <p class="muted num">
+            Range {rangeText(fs.output)}
+            {#if fs.output.ma}· mechanical advantage {rangeText(fs.output.ma)}×{/if}
+          </p>
+          {#if fs.output.deadPoints.length}
+            <p class="warn small">
+              <Icon name="alert" size={13} /> The output stops and reverses at {fs.output.deadPoints
+                .map((v) => `${fmt(v)}${inputUnit}`)
+                .join(', ')}: near there its {rotaryOut ? 'torque' : 'force'} grows without bound (a dead point).
+            </p>
+          {/if}
+          {#if fs.outputForce}
+            <p class="muted num">
+              As a force at {pointName(result.model, store.project.forces.outputPoint)}:
+              {rangeText(fs.outputForce)}
+              {F}
+            </p>
+          {/if}
+        </section>
+      {/if}
       <section class="card wide">
         <h3>Joint forces (peak over the cycle)</h3>
         <table>
           <thead><tr><th>Joint</th><th>Peak force</th><th>At input</th></tr></thead>
           <tbody>
             {#each fs.joints as j (j.id)}
-              <tr>
-                <td>{j.id} at {j.point}</td>
+              <tr onmouseenter={hover(j.point)} onmouseleave={hover(null)}>
+                <td><JointLabel model={result.model} id={j.id} /></td>
                 <td class="num">{sig(j.max)} {F}</td>
-                <td class="num">{fmt(j.at)}{inputUnit}</td>
+                <td class="num">{j.max === 0 ? '–' : `${fmt(j.at)}${inputUnit}`}</td>
               </tr>
             {/each}
           </tbody>
         </table>
+        {#if noJointForces}
+          <p class="note small">
+            <Icon name="info" size={13} /> No joint carries any force: every load acts on the driven link, so the
+            driver cancels it directly. To see what an input torque produces elsewhere, set Forces → Solve for to
+            Output from input; or put the load where it is resisted, such as on the output link.
+          </p>
+        {/if}
         <p class="muted small">
           Power balance (virtual work) {fs.balance < 1e-6 ? 'verified' : 'NOT satisfied'}: max relative error {fs.balance.toExponential(
             1,
@@ -225,6 +276,22 @@
 
   .warn {
     color: var(--warning);
+  }
+
+  tbody tr:hover {
+    background: var(--accent-soft);
+  }
+
+  .note {
+    display: flex;
+    gap: 6px;
+    margin: var(--space-2) 0 0;
+    color: var(--text-muted);
+  }
+
+  .note :global(svg) {
+    flex: none;
+    margin-top: 2px;
   }
 
   .wide {

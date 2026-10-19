@@ -186,6 +186,11 @@
     </g>
   {/if}
 
+  {#if hover && pose.has(hover)}
+    {@const at = S(pose.get(hover)!)}
+    <circle cx={at[0]} cy={at[1]} r="13" class="hover-ring" />
+  {/if}
+
   {#each joints as j (j.id + j.point + j.b)}
     {#if j.type === 'slider'}
       <rect
@@ -236,7 +241,7 @@
   {#each [...labels] as [id, text] (id)}
     {#if pose.has(id) && (jointPoints.has(id) || freePoints.some((p) => p.id === id))}
       {@const at = S(pose.get(id)!)}
-      <text x={at[0] + 9} y={at[1] - 9} class="label">{text}</text>
+      <text x={at[0] + 9} y={at[1] - 9} class="label" class:id={text === id}>{text}</text>
     {/if}
   {/each}
 </g>
@@ -347,6 +352,17 @@
     stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
+  }
+
+  .hover-ring {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 2.5;
+  }
+
+  .label.id {
+    fill: var(--text-faint);
+    font-weight: 500;
   }
 
   .label {

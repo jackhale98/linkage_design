@@ -142,6 +142,7 @@ export function convertUnits(
       if (l.free !== undefined) l.free *= ka;
     }
   }
+  p.forces.input *= d.type === 'linear' ? kf : kf * kl;
   p.meta.length_unit = length;
   p.meta.angle_unit = angle;
   p.meta.force_unit = force;

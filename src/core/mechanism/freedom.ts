@@ -2,6 +2,8 @@
 // move with the driver held, and how each of their points can move.
 
 import { pointFreedom, type PointFreedom } from '../math/freedom';
+import type { Sketch } from '../sketch/types';
+import { GROUND } from './types';
 import type { KinematicSystem } from './kinematics';
 import type { MechanismModel } from './model';
 
@@ -10,7 +12,7 @@ type Vec = [number, number];
 export interface MechanismFreedom {
   /** Number of independent motions found. */
   modes: number;
-  /** What was held still while finding them ("the Crank", "the actuator"), if anything. */
+  /** What was held still while finding them ("Crank", "the actuator"), if anything. */
   held: string | null;
   /** Links that can still move. */
   bodies: string[];
@@ -47,7 +49,37 @@ export function mechanismFreedom(model: MechanismModel, sys: KinematicSystem): M
   const held = !d
     ? null
     : d.type === 'rotary'
-      ? `the ${model.bodies.find((b) => b.id === d.body)?.name ?? 'driven link'}`
+      ? (model.bodies.find((b) => b.id === d.body)?.name ?? 'the driven link')
       : 'the actuator';
   return { modes: modes.length, held, bodies, points };
+}
+
+/**
+ * Sketch constraints that hold some of these links in place but aren't part
+ * of the mechanism: they span links (or a link and ground) rather than sitting
+ * inside one, so they only set the drawn pose. These explain why a sketch can
+ * look fully defined while the mechanism still moves freely. The driver's own
+ * angle or length is left out, and so are relations that become joints.
+ */
+export function poseConstraints(sketch: Sketch, model: MechanismModel, loose: string[]): string[] {
+  const looseSet = new Set(loose);
+  const owners = (ref: string): string[] => {
+    for (const b of model.bodies) if (b.lines.includes(ref)) return [b.id];
+    if (model.groundLines.has(ref)) return [GROUND];
+    if (model.groundPoints.has(ref)) return [GROUND];
+    return model.pointBodies.get(ref) ?? [];
+  };
+  const d = model.driver;
+  return sketch.constraints
+    .filter((c) => {
+      if (c.reference || c.type === 'point_on_line' || c.type === 'coincident') return false;
+      if (d?.type === 'rotary' && c.refs.includes(d.line)) return false;
+      if (d?.type === 'linear' && c.refs.includes(d.pointA) && c.refs.includes(d.pointB)) return false;
+      const sets = c.refs.map(owners);
+      // Inside one link (or ground): rigid geometry, kept by the mechanism.
+      const common = sets.reduce((acc, s) => acc.filter((b) => s.includes(b)));
+      if (common.length) return false;
+      return sets.some((s) => s.some((b) => looseSet.has(b)));
+    })
+    .map((c) => c.id);
 }

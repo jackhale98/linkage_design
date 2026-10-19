@@ -6,7 +6,7 @@ import type { RawSection, SectionOut } from '../csv/sectioned';
 import { readKeyValue, readTable, writeKeyValue, writeTable } from '../csv/table';
 import type { MechanismData } from '../mechanism/types';
 import type { Sketch } from '../sketch/types';
-import { ANALYSIS_MODES, LOAD_FRAMES, LOAD_TYPES, emptyForces, type ForcesData } from './types';
+import { ANALYSIS_MODES, LOAD_FRAMES, LOAD_TYPES, SOLVE_FOR, emptyForces, type ForcesData } from './types';
 
 const LOADS_SPEC = {
   id: { type: 'id', required: true },
@@ -27,6 +27,11 @@ const LOADS_SPEC = {
 const ANALYSIS_SPEC = {
   mode: { type: 'enum', values: ANALYSIS_MODES, default: 'kinetostatic' },
   gravity: { type: 'bool' },
+  solve_for: { type: 'enum', values: SOLVE_FOR, default: 'input' },
+  input: { type: 'number', default: 0 },
+  output_joint: { type: 'ref' },
+  input_point: { type: 'ref' },
+  output_point: { type: 'ref' },
 } as const;
 
 export const FORCES_SECTIONS = ['loads', 'analysis'] as const;
@@ -42,8 +47,17 @@ export function writeForces(f: ForcesData): SectionOut[] {
     writeKeyValue(
       'analysis',
       ANALYSIS_SPEC,
-      { mode: f.mode, gravity: f.gravity, extras: f.extras },
-      'mode: static (applied loads only) or kinetostatic (plus inertia at the driver speed). gravity acts in -y.',
+      {
+        mode: f.mode,
+        gravity: f.gravity,
+        solve_for: f.solveFor,
+        input: f.input,
+        output_joint: f.outputJoint,
+        input_point: f.inputPoint,
+        output_point: f.outputPoint,
+        extras: f.extras,
+      },
+      'mode: static (applied loads only) or kinetostatic (plus inertia at the driver speed). gravity acts in -y. solve_for: input (find the input torque the loads need) or output (given the input torque, find the output at output_joint). input_point / output_point express those torques as forces at a point.',
     ),
   ];
 }
@@ -106,6 +120,16 @@ export function readForces(
   const a = readKeyValue(sections.get('analysis'), ANALYSIS_SPEC, delimiter, diag);
   f.mode = a.mode;
   f.gravity = a.gravity;
+  f.solveFor = a.solve_for;
+  f.input = a.input;
+  f.outputJoint = a.output_joint ?? '';
+  f.inputPoint = a.input_point ?? '';
+  f.outputPoint = a.output_point ?? '';
   f.extras = a.extras;
+  const where = { section: 'analysis' };
+  if (f.outputJoint && !joints.has(f.outputJoint))
+    diag.error(`Output joint "${f.outputJoint}" doesn't exist`, where);
+  for (const p of [f.inputPoint, f.outputPoint])
+    if (p && !points.has(p)) diag.error(`Point "${p}" doesn't exist`, where);
   return f;
 }
