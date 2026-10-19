@@ -12,7 +12,7 @@ It runs entirely in the browser as a static site on GitHub Pages. Nothing is upl
 
 ## Status
 
-Phases 0–3 are complete:
+Phases 0–4 are complete:
 
 - **Sketching:** points and lines with snapping; dimensions edited on the canvas (expressions allowed).
 - **Constraints:** geometric constraints, plus live constraint status while you drag.
@@ -31,10 +31,15 @@ Phases 0–3 are complete:
 - **Try it by hand:** drag any link to move the mechanism through its joints, in Mechanism (a free test pose) or in Motion and Forces (it drives the sweep).
 - **Cycles:** limited sweeps can run there and back, with resisting loads (friction or pump-like) that flip with the direction of travel.
 - **Diagnostics:** when a sketch or mechanism has extra degrees of freedom, arrows show which points can still move and which way, and loose links are highlighted.
-- **Examples:** four-bar, slider-crank, quick-return and hydraulic boom.
+- **Cams:**
+  - motion programs of rises, dwells and returns with seven motion laws, checked against the fundamental law;
+  - translating and oscillating, roller and flat-faced followers;
+  - SVAJ, pressure angle, curvature and undercut, contact force and jump, cam torque;
+  - an animated cam, and profile export as CSV, DXF and SVG.
+- **Examples:** four-bar, slider-crank, quick-return, hydraulic boom and a dwell-rise-dwell cam.
 - **Files:** one CSV project file with undo/redo and autosave.
 
-Cams come next. See the [design document](docs/DESIGN.md) for the architecture, solver math and roadmap, and the [file format reference](docs/FILE_FORMAT.md) for the CSV layout.
+Next: extensions such as linkage synthesis and cam-follower joints inside linkages. See the [design document](docs/DESIGN.md) for the architecture, solver math and roadmap, and the [file format reference](docs/FILE_FORMAT.md) for the CSV layout.
 
 ## Development
 

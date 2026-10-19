@@ -1,0 +1,89 @@
+﻿LinkageDesign,1
+# Linkage Design project file - https://github.com/jackhale98/linkage_design
+
+[project]
+key,value
+name,Dwell-rise-dwell cam
+length_unit,mm
+force_unit,N
+angle_unit,deg
+notes,"Translating roller follower: 25 mm rise and return with 3-4-5 polynomials between dwells, at 300 rpm. The spring keeps the roller on the cam."
+created,2026-10-19T12:00:00.000Z
+modified,2026-10-19T12:00:00.000Z
+
+# Sketch points. fixed = anchored in place.
+[points]
+id,x,y,fixed,label
+
+# Lines between points. construction = helper geometry.
+[lines]
+id,p1,p2,construction
+
+# Constraints and dimensions. Values use the project units; angles are counterclockwise from line a to line b.
+[constraints]
+id,type,a,b,c,value,reference,label_dx,label_dy
+
+# Rigid bodies (links), each a group of sketch lines. ground = fixed to the frame.
+[bodies]
+id,name,lines,ground,color,mass,com_x,com_y,inertia
+
+# Joints, derived from the sketch. type may be changed between pin_in_slot and slider.
+[joints]
+id,type,point,line,body_a,body_b
+
+# Driver: rotary (angle of a line, from +x or from line_ref) or linear (distance between two points). Speed in rpm or length/s. return = 1: a limited sweep runs there and back.
+[driver]
+key,value
+type,none
+line,
+line_ref,
+point_a,
+point_b,
+steps,360
+speed,60
+return,0
+
+[motion]
+key,value
+trace,
+
+# Loads: force (fx, fy at a point of a body), torque (on a body), spring (between two points: k, free length, preload tension), torsion (at a joint: k per angle unit, free angle, preload torque). Blank free = free at the drawn pose. opposes = 1: a force or torque that always resists the motion (its sign follows the direction of travel).
+[loads]
+id,type,body,point,point_b,joint,fx,fy,frame,torque,k,free,preload,opposes
+
+# mode: static (applied loads only) or kinetostatic (plus inertia at the driver speed). gravity acts in -y. solve_for: input (find the input torque the loads need) or output (given the input torque, find the output at output_joint). input_point / output_point express those torques as forces at a point.
+[analysis]
+key,value
+mode,kinetostatic
+gravity,0
+solve_for,input
+input,0
+output_joint,
+input_point,
+output_point,
+
+# Cam: lengths and forces in project units; angles in degrees. follower: translating_roller, translating_flat, oscillating_roller, oscillating_flat (pivot on +x at pivot_distance). Oscillating followers: mass is the arm inertia about the pivot, spring_rate per radian, preload and load are torques.
+[cam]
+key,value
+base_radius,40
+rotation,ccw
+speed,300
+follower,translating_roller
+roller_radius,10
+offset,0
+pivot_distance,100
+arm_length,80
+pressure_limit,30
+mass,0.5
+spring_rate,1.2
+preload,30
+load,0
+step,0.5
+
+# Motion program, in order from 0°: rise / return / dwell, duration in degrees, lift in length (or degrees for oscillating followers). Durations must add up to 360°.
+[cam_segments]
+id,type,duration,lift,law
+S1,rise,100,25,poly_345
+S2,dwell,80,0,poly_345
+S3,return,100,25,poly_345
+S4,dwell,80,0,poly_345

@@ -16,6 +16,9 @@
   import MotionBar from './ui/components/MotionBar.svelte';
   import ForceLayer from './ui/components/ForceLayer.svelte';
   import FreedomMarks from './ui/components/FreedomMarks.svelte';
+  import CamLayer from './ui/components/CamLayer.svelte';
+  import CamBar from './ui/components/CamBar.svelte';
+  import { camUi } from './ui/state/cam.svelte';
   import { forceOverlay } from './ui/lib/forceOverlay';
   import { EXAMPLES } from './examples';
   import { motionUi } from './ui/state/motion.svelte';
@@ -38,6 +41,7 @@
     ui.workspace === 'mechanism' || ui.workspace === 'motion' || ui.workspace === 'forces',
   );
   const animated = $derived(ui.workspace === 'motion' || ui.workspace === 'forces');
+  const camView = $derived(ui.workspace === 'cam');
   // The sweep position where there is one to follow; otherwise a hand-dragged test pose, or the drawn pose.
   const pose = $derived.by(() => {
     if (!mechView) return null;
@@ -128,7 +132,7 @@
   // Refit when the view switches between the sketch and the mechanism (traces can be larger).
   let lastView: string | null = null;
   $effect(() => {
-    const kind = mechView ? 'mech' : 'sketch';
+    const kind = camView ? 'cam' : mechView ? 'mech' : 'sketch';
     if (lastView !== null && lastView !== kind) void fitSoon();
     lastView = kind;
   });
@@ -136,6 +140,7 @@
   // Stop playback when leaving the animated workspaces.
   $effect(() => {
     if (!animated) motionUi.pause();
+    if (!camView) camUi.pause();
   });
 
   // Drawing tools only exist in the Sketch workspace.
@@ -156,17 +161,21 @@
 
   function onCanvas(ev: CanvasPointer): PointerResult {
     if (editable) return sketchUi.pointer(ev);
+    if (camView) return ev.type === 'down' ? 'pan' : undefined;
     if (mechView && pose && sketchUi.tool !== 'pan') return motionUi.pointer(ev, pose);
     return ev.type === 'down' ? 'pan' : undefined;
   }
 
   function extents() {
+    if (camView) return camUi.extents() ?? { minX: -60, minY: -60, maxX: 60, maxY: 60 };
     return mechView ? (motionUi.extents() ?? sketchUi.extents()) : sketchUi.extents();
   }
 
   function loadExample(file = 'four-bar.csv') {
     const ex = EXAMPLES.find((e) => e.file === file)!;
     store.importText(ex.file, ex.text);
+    if (ex.workspace) ui.workspace = ex.workspace;
+    camUi.angle = 0;
     sketchUi.selection = [];
     motionUi.selection = [];
     motionUi.plotKeys = [];
@@ -273,9 +282,10 @@
     } else if (mod && key === 'a' && editable) {
       e.preventDefault();
       sketchUi.selectAll();
-    } else if (e.key === ' ' && animated) {
+    } else if (e.key === ' ' && (animated || camView)) {
       e.preventDefault();
-      motionUi.toggle();
+      if (camView) camUi.toggle();
+      else motionUi.toggle();
     } else if (e.key === 'Escape') {
       if (!editable) motionUi.selection = [];
       else if (sketchUi.escape()) e.preventDefault();
@@ -338,7 +348,15 @@
       spacePan={!animated}
     >
       {#snippet content({ view, size })}
-        {#if mechView && pose && motionUi.result.model.bodies.length}
+        {#if camView}
+          <CamLayer
+            {view}
+            {size}
+            cam={store.project.cam}
+            analysis={camUi.analysis}
+            index={camUi.sampleIndex}
+          />
+        {:else if mechView && pose && motionUi.result.model.bodies.length}
           <MechanismLayer
             {view}
             {size}
@@ -383,10 +401,10 @@
         {/if}
       {/snippet}
       {#snippet badge()}
-        {#if mechView}<MechanismStatus />{:else}<SketchStatus />{/if}
+        {#if mechView}<MechanismStatus />{:else if !camView}<SketchStatus />{/if}
       {/snippet}
       {#snippet bottom()}
-        {#if animated}<MotionBar />{/if}
+        {#if animated}<MotionBar />{:else if camView}<CamBar />{/if}
       {/snippet}
       {#snippet hudRight()}
         {#if editable}
@@ -409,6 +427,12 @@
         mechanismReady={mechView && !!motionUi.result.data}
         hasLinks={mechView && motionUi.result.model.bodies.length > 0}
         onexample={() => loadExample()}
+        camEmpty={store.project.cam.segments.length === 0}
+        oncamstart={() => {
+          camUi.start();
+          void fitSoon();
+        }}
+        oncamexample={() => loadExample('cam.csv')}
       />
     </Viewport>
   </main>

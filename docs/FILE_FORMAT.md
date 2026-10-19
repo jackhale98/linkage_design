@@ -206,6 +206,39 @@ Applied loads for the force analysis.
 | `output_joint` | The output, when `solve_for` is `output`: a pivot to ground (output torque on the link turning about it) or a pin or block in a ground slot (output force along the slot) |
 | `input_point`, `output_point` | Optional points on the driven and output links. The input and output torques are also reported as forces there, at right angles to the line from the pivot. |
 
+### `[cam]` (key, value)
+
+Cam settings. Left out of the file while the cam is untouched. Lengths and forces use the project units; cam angles are always in degrees.
+
+| Key | Meaning |
+|---|---|
+| `base_radius` | Base circle radius: the smallest radius of the cam surface |
+| `rotation` | `ccw` or `cw` |
+| `speed` | rpm |
+| `follower` | `translating_roller`, `translating_flat`, `oscillating_roller` or `oscillating_flat` |
+| `roller_radius` | Roller radius (`0` = knife edge) |
+| `offset` | Translating followers: offset of the follower axis from the cam centre (the follower moves along +y) |
+| `pivot_distance` | Oscillating followers: cam centre to arm pivot (the pivot is on the +x axis) |
+| `arm_length` | Oscillating roller: pivot to roller centre |
+| `pressure_limit` | Limit for the pressure-angle check, degrees (default 30) |
+| `mass` | Translating: follower mass. Oscillating: arm moment of inertia about the pivot. |
+| `spring_rate` | Return spring: force per length, or torque per radian (oscillating) |
+| `preload` | Spring force (or torque) at zero lift |
+| `load` | Constant load pressing the follower onto the cam: force, or torque (oscillating) |
+| `step` | Analysis step, degrees (default 0.5) |
+
+### `[cam_segments]`
+
+The motion program, in order from 0°. Durations must add up to 360°, and rises and returns must balance.
+
+| Column | Meaning |
+|---|---|
+| `id` | Unique ID, e.g. `S1` |
+| `type` | `rise`, `return` or `dwell` |
+| `duration` | Cam angle the segment spans, degrees |
+| `lift` | Rise or return: length (translating) or degrees (oscillating) |
+| `law` | `constant_velocity`, `simple_harmonic`, `cycloidal`, `modified_trapezoidal`, `modified_sine`, `poly_345` or `poly_4567` |
+
 ## Results exports
 
 Analysis results export as separate, flat CSV files with one header row and units in the column names. They are meant for Excel, pandas or MATLAB, not for re-opening in the app.
@@ -220,6 +253,18 @@ Analysis results export as separate, flat CSV files with one header row and unit
 | Each pin between two links | Joint angle (the transmission angle where it applies) |
 
 Points and joints are named by their sketch label where they have one, otherwise by ID. Example column names: `A_x [mm]`, `P5_speed [mm/s]`, `Rocker_angular_velocity [deg/s]`. Rates assume the driver turns (or extends) at the set constant speed.
+
+**Cam SVAJ** (Cam → Results → SVAJ CSV): one row per analysis step.
+
+| Column | Contents |
+|---|---|
+| `cam_angle [deg]`, `time [s]` | Position in the revolution |
+| `s`, `v`, `a`, `j` | Follower displacement, velocity, acceleration and jerk against time (length or degrees) |
+| `pressure_angle [deg]` | Signed angle between the contact normal and the follower's direction of motion |
+| `rho_pitch`, `rho_surface` | Radius of curvature of the pitch curve (rollers) and of the cam surface: + convex, − concave |
+| `contact_force`, `cam_torque` | Force at the contact, and the shaft torque it takes |
+
+**Cam profile** (Profile CSV, DXF, SVG): the cam surface in the cam's own frame at 0°, centred on the cam axis. The CSV also has the pitch curve for rollers. The DXF is one closed R12 polyline; the SVG is at true size.
 
 **Forces** (Forces → Results → Forces CSV): one row per sweep step.
 

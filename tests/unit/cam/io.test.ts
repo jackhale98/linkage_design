@@ -49,3 +49,41 @@ describe('cam CSV', () => {
     expect(q.cam.segments[1]!.lift).toBe(20);
   });
 });
+
+describe('cam exports', () => {
+  it('writes SVAJ, profile, DXF and SVG for the analysed cam', async () => {
+    const { analyzeCam } = await import('../../../src/core/cam/analysis');
+    const { svajTable, profileTable, profileDxf, profileSvg } = await import('../../../src/core/cam/export');
+    const p = newProject();
+    p.cam = { ...p.cam, step: 1, segments: starterProgram() };
+    const u = { length: 'mm', force: 'N' } as const;
+    const a = analyzeCam(p.cam, u);
+    const svaj = svajTable(p.cam, a, u);
+    expect(svaj[0]).toEqual([
+      'cam_angle [deg]',
+      'time [s]',
+      's [mm]',
+      'v [mm/s]',
+      'a [mm/s^2]',
+      'j [mm/s^3]',
+      'pressure_angle [deg]',
+      'rho_pitch [mm]',
+      'rho_surface [mm]',
+      'contact_force [N]',
+      'cam_torque [N*mm]',
+    ]);
+    expect(svaj).toHaveLength(361);
+    const prof = profileTable(p.cam, a, u);
+    expect(prof[0]).toEqual(['cam_angle [deg]', 'x [mm]', 'y [mm]', 'pitch_x [mm]', 'pitch_y [mm]']);
+    // At zero angle in a dwell the surface sits on the base circle, under the follower.
+    expect(Number(prof[1]![1])).toBeCloseTo(0, 9);
+    expect(Number(prof[1]![2])).toBeCloseTo(40, 9);
+    const dxf = profileDxf(a);
+    expect(dxf.startsWith('0\r\nSECTION\r\n2\r\nENTITIES\r\n0\r\nPOLYLINE')).toBe(true);
+    expect(dxf.match(/VERTEX/g)).toHaveLength(360);
+    expect(dxf.trimEnd().endsWith('EOF')).toBe(true);
+    const svg = profileSvg(p.cam, a, u);
+    expect(svg).toMatch(/^<svg xmlns="http:\/\/www.w3.org\/2000\/svg" width="[\d.]+mm"/);
+    expect(svg).toContain('<path d="M0 -40L');
+  });
+});

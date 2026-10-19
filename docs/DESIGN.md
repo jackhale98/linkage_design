@@ -1,6 +1,6 @@
 # Linkage Design — Design Document
 
-Status: **approved** · Phases 0–3 complete · Last updated: 2026-10-19
+Status: **approved** · Phases 0–4 complete · Last updated: 2026-10-19
 
 A free, open source, browser-based tool for designing planar mechanisms,
 linkages and cams. It runs as a static site on GitHub Pages (this
@@ -366,6 +366,23 @@ all four follower types on one tested code path, which is then validated
 against those formulas.
 
 Integrating cams into linkages (a cam-follower joint) is a later phase.
+
+### As built (Phase 4)
+
+- **Motion laws** are normalised (u, y in [0, 1]) with exact first to third derivatives. Modified trapezoidal and modified sine are built from their acceleration shapes (quarter-sine ramps and plateaus) and integrated exactly, then scaled to unit lift. Tests check them against the textbook peak velocity and acceleration coefficients.
+- **Followers on one code path.** Each follower is described in the ground frame as a function of its coordinate s:
+  - a *point* follower (roller, or knife edge): its roller centre traces the pitch curve;
+  - a *line* follower (flat face): a face line with unit normal and support distance, whose envelope in the cam frame is the cam surface.
+  The cam frame is the ground frame turned back by the cam angle.
+- **Exact derivatives.**
+  - Pitch-curve derivatives use the chain rule through the rotation.
+  - Flat faces use the support-function identity ρ = p + d²p/dα².
+  So the curvature (and the undercut check) are exact, not finite differences.
+- **Pressure angle** is the angle between the contact normal and the follower's direction of motion at the contact.
+- **Loads.** The follower's load along its coordinate is G = m·a + k·s + preload + external load (torques for oscillating arms).
+  - Contact force: G divided by the normal's component along the motion.
+  - Cam torque: G · ds/dθ.
+- **Validation.** Beyond the formula checks, the generated profiles are re-solved against the follower (lower the roller or face until it touches) and must reproduce s(θ). This is done for translating rollers in both rotation directions, flat faces and oscillating rollers.
 
 ---
 

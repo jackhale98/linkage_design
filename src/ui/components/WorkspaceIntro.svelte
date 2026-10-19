@@ -8,6 +8,9 @@
     mechanismReady,
     hasLinks,
     onexample,
+    camEmpty = false,
+    oncamstart = () => {},
+    oncamexample = () => {},
   }: {
     workspace: Workspace;
     sketchEmpty: boolean;
@@ -15,14 +18,10 @@
     mechanismReady: boolean;
     hasLinks: boolean;
     onexample: () => void;
+    camEmpty?: boolean;
+    oncamstart?: () => void;
+    oncamexample?: () => void;
   } = $props();
-
-  const LATER: Record<'cam', { title: string; text: string }> = {
-    cam: {
-      title: 'Cam',
-      text: 'Define a motion program and follower to generate the cam profile, with SVAJ, pressure angle, curvature and undercut checks.',
-    },
-  };
 </script>
 
 {#if workspace === 'sketch'}
@@ -60,14 +59,17 @@
   {:else if workspace === 'forces'}
     <div class="hint" role="status">Orange: loads · purple: joint reactions and output · teal: input</div>
   {/if}
-{:else}
-  {@const intro = LATER[workspace]}
+{:else if workspace === 'cam' && camEmpty}
   <div class="card">
-    <div class="head">
-      <h2>{intro.title}</h2>
-      <span class="tag">In development</span>
+    <h2>Cam design</h2>
+    <p>
+      Lay out the follower's motion as rises, dwells and returns, pick a follower, and get the cam profile
+      with its pressure angle, curvature, undercut and force checks.
+    </p>
+    <div class="actions">
+      <button class="btn primary" onclick={oncamstart}>Start from dwell, rise, dwell, return</button>
+      <button class="btn outline" onclick={oncamexample}>Load the cam example</button>
     </div>
-    <p>{intro.text}</p>
   </div>
 {/if}
 
@@ -81,24 +83,9 @@
     box-shadow: var(--shadow-md);
   }
 
-  .head {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-  }
-
   h2 {
     margin: 0;
     font-size: var(--text-lg);
-  }
-
-  .tag {
-    padding: 1px 8px;
-    border-radius: 10px;
-    background: var(--accent-soft);
-    color: var(--accent);
-    font-size: var(--text-xs);
-    font-weight: 600;
   }
 
   p {
@@ -107,6 +94,12 @@
 
   .card .btn {
     margin-top: var(--space-3);
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
   }
 
   .keys {

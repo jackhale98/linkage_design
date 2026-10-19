@@ -66,7 +66,13 @@ function geometry(cam: CamData): Geometry | CamGeometryError {
       if (Math.abs(e) >= Rp)
         return { message: 'The offset must be smaller than the prime circle radius (base + roller)' };
       const y0 = Math.sqrt(Rp * Rp - e * e);
-      return { kind: 'point', centre: (s) => [e, y0 + s], dcentre: () => [0, 1], d2centre: () => [0, 0], radius: r };
+      return {
+        kind: 'point',
+        centre: (s) => [e, y0 + s],
+        dcentre: () => [0, 1],
+        d2centre: () => [0, 0],
+        radius: r,
+      };
     }
     case 'oscillating_roller': {
       const d = cam.pivotDistance;
@@ -249,7 +255,7 @@ export function analyzeCam(cam: CamData, units: ForceUnits): CamAnalysis {
     let surface: Vec;
     let normalG: Vec; // contact normal in the ground frame, cam to follower
     let rate: Vec; // follower contact point velocity per unit s
-    let contactG: Vec;
+
     let along = NaN;
     let rhoPitch = NaN;
     let rhoSurface: number;
@@ -260,20 +266,20 @@ export function analyzeCam(cam: CamData, units: ForceUnits): CamAnalysis {
       surface = [c0[0] - g.radius * nc[0], c0[1] - g.radius * nc[1]];
       normalG = rot(sigma * theta, nc);
       rate = g.dcentre(m.s);
-      contactG = rot(sigma * theta, surface);
       rhoPitch = rho;
       rhoSurface = rho - g.radius;
     } else {
       surface = c0;
       const a = g.normalAngle(m.s);
       normalG = [Math.cos(a), Math.sin(a)];
-      contactG = rot(sigma * theta, surface);
+      const contactG = rot(sigma * theta, surface);
       rate = g.pointRate(contactG, m.s);
       along = g.along(contactG, m.s);
       rhoSurface = rho;
     }
     const nr = dot(normalG, rate);
-    const pressure = Math.atan2(cross(unit(rate), normalG), dot(unit(rate), normalG)) / DEG;
+    const phi = Math.atan2(cross(unit(rate), normalG), dot(unit(rate), normalG)) / DEG;
+    const pressure = Math.abs(phi) < 1e-9 ? 0 : phi; // exact zero for flat faces, not round-off
     // Load the cam must carry along the follower coordinate: inertia, spring, preload, external load.
     const G = cam.mass * m.a * omega * omega * fI + cam.springRate * m.s + cam.preload + cam.load;
     samples.push({

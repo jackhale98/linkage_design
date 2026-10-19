@@ -261,9 +261,41 @@ function boom() {
   });
 }
 
+function cam() {
+  const p = newProject(DATE);
+  p.meta.name = 'Dwell-rise-dwell cam';
+  p.meta.notes =
+    'Translating roller follower: 25 mm rise and return with 3-4-5 polynomials between dwells, at 300 rpm. The spring keeps the roller on the cam.';
+  const seg = (id: string, type: 'rise' | 'return' | 'dwell', duration: number, lift = 0) => ({
+    id,
+    type,
+    duration,
+    lift,
+    law: 'poly_345' as const,
+    extras: {},
+  });
+  p.cam = {
+    ...p.cam,
+    baseRadius: 40,
+    rollerRadius: 10,
+    speed: 300,
+    mass: 0.5,
+    springRate: 1.2,
+    preload: 30,
+    segments: [
+      seg('S1', 'rise', 100, 25),
+      seg('S2', 'dwell', 80),
+      seg('S3', 'return', 100, 25),
+      seg('S4', 'dwell', 80),
+    ],
+  };
+  writeFileSync('src/examples/cam.csv', serializeProject(p));
+}
+
 it.skipIf(!process.env.GENERATE_EXAMPLES)('generates example projects', () => {
   fourBar();
   sliderCrank();
   quickReturn();
   boom();
+  cam();
 });

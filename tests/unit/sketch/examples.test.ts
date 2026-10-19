@@ -5,6 +5,7 @@ import { analyze } from '../../../src/core/sketch/solver';
 import { computeMotion } from '../../../src/core/mechanism/motion';
 import { reachable } from '../../../src/core/mechanism/analysis';
 import { solveForces } from '../../../src/core/forces/solve';
+import { analyzeCam } from '../../../src/core/cam/analysis';
 
 const dir = 'src/examples';
 
@@ -15,6 +16,17 @@ describe('example projects', () => {
       const r = parseProject(text);
       if (!r.ok) throw new Error(JSON.stringify(r.errors));
       expect(r.warnings).toEqual([]);
+      expect(serializeProject(r.project)).toBe(text);
+      if (r.project.cam.segments.length) {
+        // A cam example: every check passes.
+        const a = analyzeCam(r.project.cam, {
+          length: r.project.meta.length_unit,
+          force: r.project.meta.force_unit,
+        });
+        expect(a.ok).toBe(true);
+        expect(a.issues).toEqual([]);
+        return;
+      }
       const a = analyze(r.project.sketch, { angleScale: angleScale(r.project) });
       expect(a.dof).toBe(0);
       expect(a.redundant.size).toBe(0);

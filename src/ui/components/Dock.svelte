@@ -4,6 +4,8 @@
   import SketchTables from './SketchTables.svelte';
   import Plots from './Plots.svelte';
   import Results from './Results.svelte';
+  import CamPlots from './CamPlots.svelte';
+  import CamResults from './CamResults.svelte';
   import { CONSTRAINT_DEFS } from '../../core/sketch/constraints';
   import { store } from '../state/project.svelte';
   import { sketchUi } from '../state/sketch.svelte';
@@ -148,7 +150,9 @@
           </ul>
         {/if}
       {:else}
-        {#if ui.dockTab === 'plots'}<Plots />{:else}<Results />{/if}
+        {#if ui.workspace === 'cam'}
+          {#if ui.dockTab === 'plots'}<CamPlots />{:else}<CamResults />{/if}
+        {:else if ui.dockTab === 'plots'}<Plots />{:else}<Results />{/if}
       {/if}
     </div>
   {/if}
