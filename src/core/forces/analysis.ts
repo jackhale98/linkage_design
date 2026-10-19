@@ -1,7 +1,7 @@
 // Force results for plots, summaries and export.
 
 import { formatNumber } from '../csv/values';
-import { inputValue, reachable, timeOf, type MotionData } from '../mechanism/analysis';
+import { inputValue, timeOf, type MotionData } from '../mechanism/analysis';
 import type { Quantity } from '../mechanism/analysis';
 import type { ForcesData } from './types';
 import type { ForceResult } from './solve';
@@ -126,9 +126,10 @@ export function forceSeries(result: ForceResult, key: string): number[] {
 }
 
 export interface ForceSummary {
-  effort: { min: number; max: number; rms: number; atMax: number };
+  /** atBack: the peak is on the way back (a there-and-back cycle). */
+  effort: { min: number; max: number; rms: number; atMax: number; atBack: boolean };
   power: { peak: number; mean: number };
-  joints: { id: string; point: string; max: number; at: number }[];
+  joints: { id: string; point: string; max: number; at: number; atBack: boolean }[];
   /** Solving for the output: its range, the mechanical advantage range, and the forces at points. */
   output: {
     min: number;
@@ -146,7 +147,7 @@ export interface ForceSummary {
 
 /** Peaks over the sweep. `at` values are driver inputs in user units. */
 export function summarizeForces(data: MotionData, result: ForceResult): ForceSummary | null {
-  const frames = reachable(data.res);
+  const frames = data.frames;
   if (!result.frames.length || frames.length !== result.frames.length) return null;
   const inputs = frames.map((f) => inputValue(data, f));
   const effort = forceSeries(result, 'd:effort');
@@ -155,7 +156,7 @@ export function summarizeForces(data: MotionData, result: ForceResult): ForceSum
   const joints = data.sys.model.joints.map((j) => {
     const mag = forceSeries(result, `f:${j.id}:mag`);
     const k = mag.reduce((best, v, i) => (v > mag[best]! ? i : best), 0);
-    return { id: j.id, point: j.point, max: mag[k]!, at: inputs[k]! };
+    return { id: j.id, point: j.point, max: mag[k]!, at: inputs[k]!, atBack: frames[k]!.dir === -1 };
   });
   return {
     effort: {
@@ -163,6 +164,7 @@ export function summarizeForces(data: MotionData, result: ForceResult): ForceSum
       max: Math.max(...effort),
       rms: Math.sqrt(effort.reduce((s, v) => s + v * v, 0) / effort.length),
       atMax: inputs[iMax]!,
+      atBack: frames[iMax]!.dir === -1,
     },
     power: { peak: Math.max(...power.map(Math.abs)), mean: power.reduce((s, v) => s + v, 0) / power.length },
     joints,
@@ -189,7 +191,7 @@ export function forcesTable(
     ...qs.map((q) => `${q.label.replace(/\s+/g, '_')} [${q.unit.replace('·', '*')}]`),
   ];
   const cols = qs.map((q) => forceSeries(result, q.key));
-  const frames = reachable(data.res);
+  const frames = data.frames;
   return [
     header,
     ...frames.map((f, i) => [

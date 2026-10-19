@@ -406,3 +406,91 @@ describe('CSV', () => {
       ]);
   });
 });
+
+describe('resisting loads over a there-and-back cycle', () => {
+  const r = 40;
+  const l = 120;
+  function sliderCrank() {
+    const p = newProject();
+    const s = p.sketch;
+    const o = addPoint(s, 0, 0);
+    const a = addPoint(s, r * Math.cos(0.5), r * Math.sin(0.5));
+    const x0 = r * Math.cos(0.5) + Math.sqrt(l * l - (r * Math.sin(0.5)) ** 2);
+    const pin = addPoint(s, x0, 0);
+    const g = addPoint(s, 250, 0);
+    s.points[0]!.fixed = true;
+    s.points[3]!.fixed = true;
+    addLine(s, o, a);
+    addLine(s, a, pin);
+    addLine(s, o, g, true);
+    must(s, { type: 'point_on_line', refs: [pin, 'L3'] });
+    syncMechanism(s, p.mechanism);
+    // Crank from 20 to 150 degrees and back.
+    p.mechanism.driver = {
+      ...p.mechanism.driver,
+      type: 'rotary',
+      line: 'L1',
+      start: 20,
+      end: 150,
+      steps: 26,
+      speed: 60,
+      returnStroke: true,
+    };
+    const rod = p.mechanism.bodies.find((b) => b.lines.includes('L2'))!;
+    return { p, rod, pin };
+  }
+
+  it('runs out and back, reversing velocities and continuing the time', () => {
+    const { p } = sliderCrank();
+    const { m } = run(p);
+    const data = m.data!;
+    expect(data.cycle).toBe(true);
+    expect(data.frames).toHaveLength(2 * 27 - 1);
+    expect(data.frames.map((f) => f.dir)).toEqual([...Array(27).fill(1), ...Array(26).fill(-1)]);
+    for (let k = 1; k < data.frames.length; k++)
+      expect(data.frames[k]!.time).toBeGreaterThan(data.frames[k - 1]!.time);
+    // One stroke of 130 degrees at 60 rpm takes 130/360 s; the cycle twice that.
+    expect(data.frames.at(-1)!.time).toBeCloseTo((2 * 130) / 360, 9);
+  });
+
+  it('a resisting piston load needs a push on the way out and a pull on the way back', () => {
+    const { p, rod, pin } = sliderCrank();
+    p.forces = {
+      ...p.forces,
+      mode: 'static',
+      loads: [load('F1', 'force', { body: rod.id, point: pin, fx: 100, oppose: true })],
+    };
+    const { m, f } = run(p);
+    const frames = m.data!.frames;
+    frames.forEach((fr, k) => {
+      const t = fr.t;
+      const u = r * Math.sin(t);
+      const dx = -r * Math.sin(t) - (u * r * Math.cos(t)) / Math.sqrt(l * l - u * u);
+      const ff = f.frames[k]!;
+      // Resisting: the input always does work, |T| = 100 |dx/dtheta| with the sign of travel.
+      expect(ff.driver).toBeCloseTo(fr.dir * 100 * Math.abs(dx), 5);
+      expect(ff.power).toBeGreaterThanOrEqual(-1e-9);
+      expect(ff.balance).toBeLessThan(1e-9);
+      // The load shown on the canvas points against the piston's motion.
+      const F = ff.applied.get('F1')!.F!;
+      expect(F[0] * dx * fr.dir).toBeLessThanOrEqual(1e-9);
+    });
+  });
+
+  it('a resisting torque flips with the link rotation', () => {
+    const { p, rod } = sliderCrank();
+    p.forces = {
+      ...p.forces,
+      mode: 'static',
+      loads: [load('T1', 'torque', { body: rod.id, torque: 50, oppose: true })],
+    };
+    const { m, f } = run(p);
+    const i = m.sys.bodyIndex.get(rod.id)!;
+    m.data!.frames.forEach((fr, k) => {
+      const w = fr.qd[3 * i + 2]! * fr.dir;
+      const T = f.frames[k]!.applied.get('T1')!.T!;
+      if (Math.abs(w) > 1e-6) expect(T).toBe(-50 * Math.sign(w));
+      expect(f.frames[k]!.power).toBeGreaterThanOrEqual(-1e-9);
+    });
+  });
+});

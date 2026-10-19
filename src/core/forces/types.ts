@@ -34,6 +34,8 @@ export interface Load {
   free?: number;
   /** Preload: tension (spring) or torque (torsion) at the free length/angle. */
   preload: number;
+  /** Force or torque that resists the motion: its sign follows the direction of travel (like friction or a pump load). */
+  oppose: boolean;
   extras: Record<string, string>;
 }
 
@@ -96,6 +98,7 @@ export function newLoad(id: string, type: LoadType): Load {
     torque: 0,
     k: 0,
     preload: 0,
+    oppose: false,
     extras: {},
   };
 }

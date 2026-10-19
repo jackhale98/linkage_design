@@ -125,3 +125,62 @@ test('saves and reopens mechanism data', async ({ page }) => {
   await expect(page.getByRole('button', { name: /^Output rocker/ })).toBeVisible();
   await expect(status(page)).toHaveText('Full rotation');
 });
+
+async function centre(page: Page, point: string) {
+  const box = (await page.locator(`circle.pin[data-point="${point}"]`).first().boundingBox())!;
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+test('drags the mechanism by hand to try it out, then goes back to the drawn pose', async ({ page }) => {
+  await page.getByRole('tab', { name: 'Mechanism' }).click();
+  const a = await centre(page, 'P3');
+  const o = await centre(page, 'P1');
+  // Swing the crank pin A round about O2 by about 90 degrees.
+  const r = Math.hypot(a.x - o.x, a.y - o.y);
+  const t0 = Math.atan2(-(a.y - o.y), a.x - o.x);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  for (let k = 1; k <= 10; k++) {
+    const t = t0 + (k / 10) * (Math.PI / 2);
+    await page.mouse.move(o.x + r * Math.cos(t), o.y - r * Math.sin(t));
+  }
+  await page.mouse.up();
+  const moved = await centre(page, 'P3');
+  expect(Math.hypot(moved.x - a.x, moved.y - a.y)).toBeGreaterThan(r * 0.8);
+  // It stays on its circle about O2: the joints hold.
+  expect(Math.hypot(moved.x - o.x, moved.y - o.y)).toBeCloseTo(r, 0);
+  await page.getByRole('button', { name: 'Back to drawn pose' }).click();
+  const back = await centre(page, 'P3');
+  expect(Math.hypot(back.x - a.x, back.y - a.y)).toBeLessThan(1);
+});
+
+test('dragging in Motion moves the driver and keeps the plots in step', async ({ page }) => {
+  await page.getByRole('tab', { name: 'Motion' }).click();
+  await expect(readout(page)).toContainText('θ = 0.0°');
+  const a = await centre(page, 'P3');
+  const o = await centre(page, 'P1');
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  // Crank pin starts on +x of O2; pull it up and over towards +y.
+  const r = Math.hypot(a.x - o.x, a.y - o.y);
+  for (let k = 1; k <= 10; k++) {
+    const t = (k / 10) * (Math.PI / 2);
+    await page.mouse.move(o.x + r * Math.cos(t), o.y - r * Math.sin(t));
+  }
+  await page.mouse.up();
+  await expect(readout(page)).toContainText(/θ = (8[5-9]|9[0-5])\.\d°/);
+});
+
+test('runs a limited sweep there and back with a resisting load', async ({ page }) => {
+  await loadExample(page, /Hydraulic boom/);
+  await page.getByRole('tab', { name: 'Mechanism' }).click();
+  await page.getByLabel('There and back: include the return stroke').check();
+  await page.getByRole('tab', { name: 'Forces' }).click();
+  await page.locator('.loads > li .row').first().click();
+  await page.getByLabel('Resists the motion (flips with the direction of travel)').check();
+  await page.getByLabel('Driver position').fill('150');
+  await expect(readout(page)).toContainText('back');
+  await page.getByRole('tab', { name: 'Plots' }).click();
+  await expect(page.locator('.u-legend')).toContainText('Actuator force (out)');
+  await expect(page.locator('.u-legend')).toContainText('Actuator force (back)');
+});

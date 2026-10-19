@@ -41,7 +41,13 @@
     {#if frame}
       <span class="readout num">
         {symbol} = {inputValue(data, frame).toFixed(rotary ? 1 : 2)}{unit}
-        <span class="muted">· t = {timeOf(data, frame).toFixed(3)} s</span>
+        <span class="muted"
+          >· t = {timeOf(data, frame).toFixed(3)} s{data.cycle
+            ? frame.dir > 0
+              ? ' · out'
+              : ' · back'
+            : ''}</span
+        >
       </span>
     {/if}
     <select
@@ -90,7 +96,7 @@
   }
 
   .readout {
-    min-width: 17ch;
+    min-width: 24ch;
     font-size: var(--text-sm);
     font-weight: 600;
     font-variant-numeric: tabular-nums;

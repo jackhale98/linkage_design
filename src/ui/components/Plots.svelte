@@ -35,10 +35,19 @@
         ? `Driver angle (${store.project.meta.angle_unit === 'deg' ? '°' : 'rad'})`
         : `Actuator length (${store.project.meta.length_unit})`,
   );
+  // Against the input, a there-and-back cycle plots as two curves over the
+  // outward inputs: out, and back (the return frames in reverse).
+  const split = $derived(!!data?.cycle && motionUi.xAxis === 'input');
+  const nOut = $derived(split ? (motionUi.frames.length + 1) / 2 : motionUi.frames.length);
   const x = $derived(
     data
-      ? motionUi.frames.map((f) => (motionUi.xAxis === 'time' ? timeOf(data, f) : inputValue(data, f)))
+      ? motionUi.frames
+          .slice(0, nOut)
+          .map((f) => (motionUi.xAxis === 'time' ? timeOf(data, f) : inputValue(data, f)))
       : [],
+  );
+  const marker = $derived(
+    split && motionUi.frameIndex >= nOut ? 2 * nOut - 2 - motionUi.frameIndex : motionUi.frameIndex,
   );
 
   // One chart per unit, so every chart has a single y-axis.
@@ -50,11 +59,20 @@
       unit,
       series: selected
         .filter((q) => q!.unit === unit)
-        .map((q) => ({
-          label: q!.label,
-          values: isForce(q!.key) ? forceSeries(motionUi.forces, q!.key) : series(data, q!.key),
-          slot: motionUi.plotSlots[q!.key] ?? 0,
-        })),
+        .flatMap((q) => {
+          const values = isForce(q!.key) ? forceSeries(motionUi.forces, q!.key) : series(data, q!.key);
+          const slot = motionUi.plotSlots[q!.key] ?? 0;
+          if (!split) return [{ label: q!.label, values, slot }];
+          // The turnaround point belongs to the way out; leave it off the way back so a load
+          // that flips there doesn't draw a false vertical line.
+          const back = Array.from({ length: nOut }, (_, i) =>
+            i === nOut - 1 ? NaN : values[2 * nOut - 2 - i]!,
+          );
+          return [
+            { label: `${q!.label} (out)`, values: values.slice(0, nOut), slot },
+            { label: `${q!.label} (back)`, values: back, slot, dash: true },
+          ];
+        }),
     }));
   });
 </script>
@@ -119,7 +137,7 @@
           {xLabel}
           series={c.series}
           unit={c.unit}
-          marker={motionUi.frameIndex}
+          {marker}
           height={Math.max(120, ui.dockHeight - 100 - (charts.length > 1 ? 40 : 0))}
           onseek={(i) => {
             motionUi.pause();

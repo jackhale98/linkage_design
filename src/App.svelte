@@ -38,7 +38,13 @@
     ui.workspace === 'mechanism' || ui.workspace === 'motion' || ui.workspace === 'forces',
   );
   const animated = $derived(ui.workspace === 'motion' || ui.workspace === 'forces');
-  const pose = $derived(mechView ? motionUi.poseAt(animated ? motionUi.displayFrame : null) : null);
+  // The sweep position where there is one to follow; otherwise a hand-dragged test pose, or the drawn pose.
+  const pose = $derived.by(() => {
+    if (!mechView) return null;
+    if (animated && motionUi.frames.length > 1) return motionUi.poseAt(motionUi.displayFrame);
+    const q = motionUi.testQ;
+    return q ? motionUi.poseAtQ(q) : motionUi.poseAt(null);
+  });
   const sketchFreedom = $derived(
     store.project.sketch.points.flatMap((p) => {
       const f = sketchUi.analysis.freedom.get(p.id);

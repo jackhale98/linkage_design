@@ -270,3 +270,44 @@ describe('mobility', () => {
     void ctx;
   });
 });
+
+describe('dragging the mechanism', () => {
+  const sk = fourBar(50, 110, 90, 140, 60);
+  const mech = emptyMechanism();
+  rotaryDriver(mech, 'L2', 0, 360, 360);
+  const { sys } = build(sk, mech);
+  const crank = sys.model.bodies.find((b) => b.lines.includes('L2'))!;
+  const coupler = sys.model.bodies.find((b) => b.lines.includes('L3'))!;
+  const jointsOk = (q: number[]) => {
+    for (const j of sys.model.joints) {
+      const pa = sys.pos(q, sys.attach(j.point, j.a));
+      const pb = sys.pos(q, sys.attach(j.point, j.b));
+      expect(Math.hypot(pa[0] - pb[0], pa[1] - pb[1])).toBeLessThan(1e-7);
+    }
+  };
+
+  it('swings the crank pin round to face the cursor, keeping every joint together', () => {
+    let q = sys.q0();
+    const pin = sys.attach('P3', crank.id);
+    // Drag in small moves, as the pointer does, from 60 degrees round to 150 degrees.
+    for (let deg = 60; deg <= 150; deg += 5) {
+      const t = (deg * Math.PI) / 180;
+      q = sys.dragTo(q, pin, [80 * Math.cos(t), 80 * Math.sin(t)]);
+      jointsOk(q);
+    }
+    const A = sys.pos(q, pin);
+    expect(Math.hypot(A[0], A[1])).toBeCloseTo(50, 8);
+    expect((Math.atan2(A[1], A[0]) * 180) / Math.PI).toBeCloseTo(150, 3);
+    expect((sys.inputAt(q)! * 180) / Math.PI).toBeCloseTo(150, 3);
+  });
+
+  it('moves a point on the coupler as far as the joints allow and no further', () => {
+    let q = sys.q0();
+    const c = sys.attach('P4', coupler.id);
+    // B rides on the rocker's circle (radius 90 about O4); a target far outside stops it on that circle.
+    q = sys.dragTo(q, c, [400, 300], 60);
+    jointsOk(q);
+    const B = sys.pos(q, c);
+    expect(Math.hypot(B[0] - 140, B[1])).toBeCloseTo(90, 8);
+  });
+});

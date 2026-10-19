@@ -396,6 +396,89 @@ export class KinematicSystem {
     });
   }
 
+  /** Joint rows only (no driver): residual and Jacobian at q. */
+  private jointRows(q: number[]): { r: number[]; J: number[][] } {
+    const all = this.residual(q, 0);
+    const J = this.jacobian(q);
+    const keep = this.rowOwners().map((o) => o.kind !== 'rotary' && o.kind !== 'linear');
+    return { r: all.filter((_, k) => keep[k]), J: J.filter((_, k) => keep[k]) };
+  }
+
+  /** Newton projection of q onto the joint constraints (minimum-norm corrections). */
+  private projectJoints(q0: number[]): number[] | null {
+    let q = q0.slice();
+    const tol = 1e-10 * this.scale;
+    for (let it = 0; it < 30; it++) {
+      const { r, J } = this.jointRows(q);
+      const err = normInf(r);
+      if (err <= tol) return q;
+      const dq = solveMinNorm(
+        J,
+        r.map((v) => -v),
+      );
+      q = q.map((v, i) => v + dq[i]!);
+    }
+    return normInf(this.jointRows(q).r) <= tol * 1e3 ? q : null;
+  }
+
+  /**
+   * Drag: move the attached point towards a target as far as the joints allow
+   * (the driver is free). Steps stay within the joints' allowed motions, are
+   * kept small, and are projected back onto the joints, so the pose follows the
+   * cursor smoothly and stops at toggle limits instead of jumping branch.
+   */
+  dragTo(qStart: number[], a: Attach, target: Vec, maxIter = 40): number[] {
+    let q = qStart.slice();
+    const maxStep = 0.08 * this.scale;
+    for (let it = 0; it < maxIter; it++) {
+      const P = this.pos(q, a);
+      const e: Vec = [target[0] - P[0], target[1] - P[1]];
+      if (Math.hypot(e[0], e[1]) < 1e-6 * this.scale) break;
+      const modes = this.freeModes(q, false);
+      if (!modes.length) break;
+      // Point velocity per unit of each allowed motion.
+      const G = modes.map((v) => this.vel(q, v, a));
+      // Least squares for the mode amplitudes c: (G^T G + mu) c = G^T e.
+      const k = modes.length;
+      const A = Array.from({ length: k }, (_, i) =>
+        Array.from({ length: k }, (_, j) => G[i]![0] * G[j]![0] + G[i]![1] * G[j]![1] + (i === j ? 1e-6 : 0)),
+      );
+      const b = G.map((g) => g[0] * e[0] + g[1] * e[1]);
+      const c = solveSquare(A, b);
+      if (!c) break;
+      const dq = new Array<number>(this.n).fill(0);
+      modes.forEach((v, m) => v.forEach((x, i) => (dq[i]! += x * c[m]!)));
+      // Limit the step: the largest point motion it causes stays under maxStep.
+      const move = Math.hypot(...G.reduce((s, g, m) => [s[0] + g[0] * c[m]!, s[1] + g[1] * c[m]!], [0, 0]));
+      let size = 0;
+      for (let i = 0; i < this.n; i++)
+        size = Math.max(size, Math.abs(dq[i]!) * (i % 3 === 2 ? this.scale : 1));
+      const f = Math.min(1, maxStep / Math.max(size, move, 1e-300));
+      const next = this.projectJoints(q.map((v, i) => v + f * dq[i]!));
+      if (!next) break;
+      const P2 = this.pos(next, a);
+      if (Math.hypot(target[0] - P2[0], target[1] - P2[1]) >= Math.hypot(e[0], e[1]) - 1e-12 * this.scale)
+        break;
+      q = next;
+    }
+    return q;
+  }
+
+  /** The driver input (solver units) at pose q: a line angle, or the actuator length. */
+  inputAt(q: number[]): number | null {
+    const d = this.driver;
+    if (!d) return null;
+    if (d.type === 'rotary') {
+      const i = this.bodyIndex.get(d.body);
+      const j = d.refBody === GROUND ? undefined : this.bodyIndex.get(d.refBody);
+      if (i === undefined) return null;
+      return d.t0 + q[3 * i + 2]! - (j === undefined ? 0 : q[3 * j + 2]!);
+    }
+    const A = this.pos(q, this.attach(d.pointA, d.bodyA));
+    const B = this.pos(q, this.attach(d.pointB, d.bodyB));
+    return Math.hypot(A[0] - B[0], A[1] - B[1]);
+  }
+
   /** Solve positions for input t from a starting guess. */
   solvePosition(qGuess: number[], t: number, maxIter = 40): { q: number[]; ok: boolean } {
     let q = qGuess.slice();

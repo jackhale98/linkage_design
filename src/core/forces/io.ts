@@ -22,6 +22,7 @@ const LOADS_SPEC = {
   k: { type: 'number', default: 0, min: 0 },
   free: { type: 'number' },
   preload: { type: 'number', default: 0 },
+  opposes: { type: 'bool' },
 } as const;
 
 const ANALYSIS_SPEC = {
@@ -41,8 +42,8 @@ export function writeForces(f: ForcesData): SectionOut[] {
     writeTable(
       'loads',
       LOADS_SPEC,
-      f.loads.map((l) => ({ ...l, point_b: l.pointB, free: l.free })),
-      'Loads: force (fx, fy at a point of a body), torque (on a body), spring (between two points: k, free length, preload tension), torsion (at a joint: k per angle unit, free angle, preload torque). Blank free = free at the drawn pose.',
+      f.loads.map((l) => ({ ...l, point_b: l.pointB, free: l.free, opposes: l.oppose })),
+      'Loads: force (fx, fy at a point of a body), torque (on a body), spring (between two points: k, free length, preload tension), torsion (at a joint: k per angle unit, free angle, preload torque). Blank free = free at the drawn pose. opposes = 1: a force or torque that always resists the motion (its sign follows the direction of travel).',
     ),
     writeKeyValue(
       'analysis',
@@ -113,6 +114,7 @@ export function readForces(
         k: r.k,
         free: r.free,
         preload: r.preload,
+        oppose: r.opposes,
         extras: r.extras,
       });
     }

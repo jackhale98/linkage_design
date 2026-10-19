@@ -44,7 +44,7 @@ B1,Boom,L1 L2,0,#2a78d6,20,450,180,1600000
 id,type,point,line,body_a,body_b
 J1,revolute,P1,,ground,B1
 
-# Driver: rotary (angle of a line, from +x or from line_ref) or linear (distance between two points). Speed in rpm or length/s.
+# Driver: rotary (angle of a line, from +x or from line_ref) or linear (distance between two points). Speed in rpm or length/s. return = 1: a limited sweep runs there and back.
 [driver]
 key,value
 type,linear
@@ -56,15 +56,16 @@ start,230
 end,420
 steps,100
 speed,50
+return,0
 
 [motion]
 key,value
 trace,P3
 
-# Loads: force (fx, fy at a point of a body), torque (on a body), spring (between two points: k, free length, preload tension), torsion (at a joint: k per angle unit, free angle, preload torque). Blank free = free at the drawn pose.
+# Loads: force (fx, fy at a point of a body), torque (on a body), spring (between two points: k, free length, preload tension), torsion (at a joint: k per angle unit, free angle, preload torque). Blank free = free at the drawn pose. opposes = 1: a force or torque that always resists the motion (its sign follows the direction of travel).
 [loads]
-id,type,body,point,point_b,joint,fx,fy,frame,torque,k,free,preload
-F1,force,B1,P3,,,0,-2000,global,0,0,,0
+id,type,body,point,point_b,joint,fx,fy,frame,torque,k,free,preload,opposes
+F1,force,B1,P3,,,0,-2000,global,0,0,,0,0
 
 # mode: static (applied loads only) or kinetostatic (plus inertia at the driver speed). gravity acts in -y. solve_for: input (find the input torque the loads need) or output (given the input torque, find the output at output_joint). input_point / output_point express those torques as forces at a point.
 [analysis]

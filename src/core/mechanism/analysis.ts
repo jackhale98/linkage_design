@@ -30,6 +30,42 @@ export interface MotionData {
   /** Driver input rate in solver units per second (signed: + when moving from start to end). */
   rate: number;
   units: MotionUnits;
+  /** The positions analysed, in order: the sweep, then (for a cycle) the way back. */
+  frames: CycleFrame[];
+  /** The frames run there and back. */
+  cycle: boolean;
+}
+
+/** A sweep position in the cycle: the direction of travel and the time it is reached. */
+export interface CycleFrame extends Frame {
+  /** +1 on the way out (start to end), -1 on the way back. */
+  dir: 1 | -1;
+  /** Seconds since the start of the cycle. */
+  time: number;
+}
+
+/**
+ * The analysed positions. A limited sweep with a return stroke runs out and
+ * back; on the way back the positions repeat in reverse with velocities
+ * reversed (accelerations, which go with the speed squared, are unchanged).
+ */
+export function cycleFrames(res: SweepResult, rate: number, withReturn: boolean): CycleFrame[] {
+  const out = reachable(res);
+  const t0 = out[0]?.t ?? 0;
+  const timeAt = (t: number) => (rate ? (t - t0) / rate : 0);
+  const frames: CycleFrame[] = out.map((f) => ({ ...f, dir: 1, time: timeAt(f.t) }));
+  if (withReturn && !res.fullRotation && out.length > 1) {
+    const last = out[out.length - 1]!;
+    const T = timeAt(last.t);
+    for (let k = out.length - 2; k >= 0; k--)
+      frames.push({ ...out[k]!, dir: -1, time: T + (rate ? (last.t - out[k]!.t) / rate : 0) });
+  }
+  return frames;
+}
+
+/** Signed input rate at a frame (reversed on the way back). */
+export function rateAt(data: MotionData, f: Frame & { dir?: 1 | -1 }): number {
+  return data.rate * (f.dir ?? 1);
 }
 
 type Vec = [number, number];
@@ -123,8 +159,9 @@ export function quantities(sys: KinematicSystem, units: MotionUnits): Quantity[]
 }
 
 /** Evaluate one quantity at one frame. */
-export function evaluate(data: MotionData, f: Frame, key: string): number {
-  const { sys, rate, units } = data;
+export function evaluate(data: MotionData, f: Frame & { dir?: 1 | -1 }, key: string): number {
+  const { sys, units } = data;
+  const rate = rateAt(data, f);
   const [kind, id, what] = key.split(':') as [string, string, string];
   const k = angleFactor(units);
   if (kind === 'p') {
@@ -178,9 +215,10 @@ export function inputValue(data: MotionData, f: Frame): number {
   return data.sys.driver?.type === 'rotary' ? f.t * angleFactor(data.units) : f.t;
 }
 
-/** Time (s) since the first reachable frame. */
-export function timeOf(data: MotionData, f: Frame): number {
-  const first = reachable(data.res)[0];
+/** Time (s) since the start of the cycle. */
+export function timeOf(data: MotionData, f: Frame & { time?: number }): number {
+  if (f.time !== undefined) return f.time;
+  const first = data.frames[0];
   if (!first || data.rate === 0) return 0;
   return (f.t - first.t) / data.rate;
 }
@@ -197,7 +235,7 @@ export function unwrap(values: number[], period: number): number[] {
 }
 
 export function series(data: MotionData, key: string): number[] {
-  const vals = reachable(data.res).map((f) => evaluate(data, f, key));
+  const vals = data.frames.map((f) => evaluate(data, f, key));
   return key.endsWith(':angle') && key.startsWith('b:')
     ? unwrap(vals, data.units.angle === 'deg' ? 360 : 2 * Math.PI)
     : vals;
@@ -289,10 +327,8 @@ export function summarize(data: MotionData, tracePoints: string[]): MotionSummar
       .join(', ');
     if (notes) rangeText += ` (${notes})`;
   }
-  const cycleTime =
-    frames.length > 1 && data.rate
-      ? Math.abs((frames[frames.length - 1]!.t - frames[0]!.t) / data.rate)
-      : undefined;
+  const last = data.frames[data.frames.length - 1];
+  const cycleTime = data.frames.length > 1 && data.rate && last ? Math.abs(last.time) : undefined;
 
   // The angle at a joint on the driven link sweeps freely; it isn't a transmission angle.
   const driven = sys.driver?.type === 'rotary' ? sys.driver.body : undefined;
@@ -342,7 +378,7 @@ export function resultsTable(data: MotionData): string[][] {
     ...qs.map((q) => `${q.label.replace(/\s+/g, '_')} [${unitLabel(q.unit)}]`),
   ];
   const cols = qs.map((q) => series(data, q.key));
-  const frames = reachable(data.res);
+  const frames = data.frames;
   const rows = frames.map((f, i) => [
     formatNumber(inputValue(data, f)),
     formatNumber(timeOf(data, f)),

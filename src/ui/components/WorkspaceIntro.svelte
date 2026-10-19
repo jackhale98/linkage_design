@@ -53,7 +53,7 @@
     </div>
   {:else if workspace === 'mechanism'}
     <div class="hint" role="status">
-      Click a link to edit it · shift-click several links to merge them into one rigid link
+      Drag a link to move the mechanism by hand · click to edit it · shift-click several to merge them
     </div>
   {:else if !mechanismReady}
     <div class="hint" role="status">Set a driver in the panel on the right to animate the mechanism</div>

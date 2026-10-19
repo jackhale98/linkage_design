@@ -167,6 +167,7 @@ Joints are **derived from the sketch**, and this section records them so they ke
 | `start`, `end` | Sweep range in project units (blank = a full turn, or ±20% of the actuator length) |
 | `steps` | Number of steps (default 360) |
 | `speed` | rpm (rotary) or length units per second (linear) |
+| `return` | `1`: a limited sweep runs there and back (a full cycle). On the way back the positions repeat in reverse, velocities reverse, and time continues. |
 
 ### `[motion]` (key, value)
 
@@ -192,6 +193,7 @@ Applied loads for the force analysis.
 | `k` | spring, torsion | Stiffness: force per length, or torque per angle unit |
 | `free` | spring, torsion | Free length or free angle. Blank = free at the drawn pose. |
 | `preload` | spring, torsion | Tension or torque at the free length or angle |
+| `opposes` | force, torque | `1`: the load resists the motion, like friction or a pump. A force acts along its line against the point's motion, and a torque against the link's rotation, so both flip with the direction of travel. |
 
 ### `[analysis]` (key, value)
 

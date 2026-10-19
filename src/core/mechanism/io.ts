@@ -38,6 +38,7 @@ const DRIVER_SPEC = {
   end: { type: 'number' },
   steps: { type: 'number', default: 360, min: 1, max: 100000, integer: true },
   speed: { type: 'number', default: 60 },
+  return: { type: 'bool' },
 } as const;
 
 const MOTION_SPEC = {
@@ -82,9 +83,10 @@ export function writeMechanism(m: MechanismData): SectionOut[] {
         end: clean(d.end),
         steps: d.steps,
         speed: d.speed,
+        return: d.returnStroke,
         extras: d.extras,
       },
-      'Driver: rotary (angle of a line, from +x or from line_ref) or linear (distance between two points). Speed in rpm or length/s.',
+      'Driver: rotary (angle of a line, from +x or from line_ref) or linear (distance between two points). Speed in rpm or length/s. return = 1: a limited sweep runs there and back.',
     ),
     writeKeyValue('motion', MOTION_SPEC, { trace: m.motion.trace.join(' '), extras: m.motion.extras }),
   ];
@@ -164,6 +166,7 @@ export function readMechanism(
     end: dv.end,
     steps: dv.steps,
     speed: dv.speed,
+    returnStroke: dv.return,
     extras: dv.extras,
   };
   const where = { line: ds?.markerLine, section: 'driver' };

@@ -217,6 +217,7 @@
       cx={j.at[0]}
       cy={j.at[1]}
       r={sel.has(j.point) || hover === j.point ? 6 : 4.5}
+      data-point={j.point}
       class="pin"
       class:selected={sel.has(j.point)}
     />

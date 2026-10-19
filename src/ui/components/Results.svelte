@@ -59,7 +59,8 @@
       <p class="big">{summary.rangeText}</p>
       {#if summary.cycleTime}
         <p class="muted">
-          {summary.fullRotation ? 'One revolution' : 'Sweep'} takes {fmt(summary.cycleTime, 3)} s at the set speed.
+          {summary.fullRotation ? 'One revolution' : data.cycle ? 'The cycle (there and back)' : 'The sweep'} takes
+          {fmt(summary.cycleTime, 3)} s at the set speed.
         </p>
       {/if}
     </section>
@@ -132,7 +133,9 @@
           <p class="big num">{sig(fs.effort.min)} to {sig(fs.effort.max)} {effortUnit}</p>
           <p class="muted num">
             RMS {sig(fs.effort.rms)}
-            {effortUnit} · peak at {fmt(fs.effort.atMax)}{inputUnit} · peak power {sig(fs.power.peak)} W
+            {effortUnit} · peak at {fmt(fs.effort.atMax)}{inputUnit}{fs.effort.atBack
+              ? ' (on the way back)'
+              : ''} · peak power {sig(fs.power.peak)} W
           </p>
         {/if}
         {#if fs.inputForce}
@@ -178,7 +181,9 @@
               <tr onmouseenter={hover(j.point)} onmouseleave={hover(null)}>
                 <td><JointLabel model={result.model} id={j.id} /></td>
                 <td class="num">{sig(j.max)} {F}</td>
-                <td class="num">{j.max === 0 ? '–' : `${fmt(j.at)}${inputUnit}`}</td>
+                <td class="num"
+                  >{j.max === 0 ? '–' : `${fmt(j.at)}${inputUnit}${j.atBack ? ' (back)' : ''}`}</td
+                >
               </tr>
             {/each}
           </tbody>

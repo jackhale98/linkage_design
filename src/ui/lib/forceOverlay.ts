@@ -54,10 +54,6 @@ export function forceOverlay(
   const { sys, model } = motion;
   const F = units.force;
   const torqueUnit = `${F}·${units.length}`;
-  const phi = (b: string) => {
-    const i = sys.bodyIndex.get(b);
-    return i === undefined ? 0 : frame.q[3 * i + 2]!;
-  };
   const pointAt = (p: string, body?: string): Vec | undefined => {
     const b = body ?? (model.groundPoints.has(p) ? GROUND : model.pointBodies.get(p)?.[0]);
     return b === undefined ? undefined : sys.pos(frame.q, sys.attach(p, b));
@@ -79,24 +75,26 @@ export function forceOverlay(
 
   if (show.loads) {
     for (const l of forces.loads) {
+      // Applied forces and torques as the solver used them (resisting loads flip with the motion).
+      const act = ff.applied.get(l.id);
       if (l.type === 'force') {
-        const at = sys.bodyIndex.has(l.body) ? pointAt(l.point, l.body) : undefined;
-        if (!at) continue;
-        let v: Vec = [l.fx, l.fy];
-        if (l.frame === 'body') {
-          const a = phi(l.body);
-          v = [Math.cos(a) * l.fx - Math.sin(a) * l.fy, Math.sin(a) * l.fx + Math.cos(a) * l.fy];
-        }
-        arrows.push({ key: l.id, at, F: v, kind: 'applied', label: `${l.id} ${fmt(Math.hypot(...v))} ${F}` });
+        if (!act?.at || !act.F || (act.F[0] === 0 && act.F[1] === 0)) continue;
+        arrows.push({
+          key: l.id,
+          at: pointAt(l.point, l.body) ?? act.at,
+          F: act.F,
+          kind: 'applied',
+          label: `${l.id} ${fmt(Math.hypot(...act.F))} ${F}`,
+        });
       } else if (l.type === 'torque') {
         const b = moving.find((x) => x.id === l.body);
-        if (b)
+        if (b && act?.T)
           torques.push({
             key: l.id,
             at: comOf(b),
-            T: l.torque,
+            T: act.T,
             kind: 'applied',
-            label: `${l.id} ${fmt(l.torque)} ${torqueUnit}`,
+            label: `${l.id} ${fmt(act.T)} ${torqueUnit}`,
           });
       } else if (l.type === 'spring') {
         const a = pointAt(l.point);

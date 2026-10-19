@@ -79,6 +79,12 @@
   {#each errors as e, i (i)}
     <p class="issue {e.severity}"><Icon name="alert" size={15} /><span>{e.message}</span></p>
   {/each}
+  {#if motionUi.testQ}
+    <p class="test">
+      <span>Showing a test pose you dragged.</span>
+      <button class="btn outline" onclick={() => (motionUi.testPose = null)}>Back to drawn pose</button>
+    </p>
+  {/if}
 </header>
 
 <section>
@@ -173,6 +179,16 @@
         oncommit={(v) => motionUi.setDriver({ speed: v })}
       />
     </div>
+    {#if !r.res?.fullRotation}
+      <label class="check">
+        <input
+          type="checkbox"
+          checked={d.returnStroke}
+          onchange={(e) => motionUi.setDriver({ returnStroke: e.currentTarget.checked })}
+        />
+        There and back: include the return stroke
+      </label>
+    {/if}
   {/if}
 </section>
 
@@ -391,6 +407,16 @@
 
   .small {
     margin: 0;
+    font-size: var(--text-sm);
+  }
+
+  .test {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin: var(--space-2) 0 0;
+    color: var(--text-muted);
     font-size: var(--text-sm);
   }
 

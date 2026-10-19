@@ -16,7 +16,8 @@
   }: {
     x: number[];
     xLabel: string;
-    series: { label: string; values: number[]; slot: number }[];
+    /** dash: a second curve of the same quantity (e.g. the way back). */
+    series: { label: string; values: number[]; slot: number; dash?: boolean }[];
     unit: string;
     marker?: number;
     /** Plot area height in px (the legend adds about 30 px). */
@@ -82,6 +83,7 @@
           label: s.label,
           stroke: css(`--series-${(s.slot % 8) + 1}`),
           width: 2,
+          ...(s.dash ? { dash: [6, 4] } : {}),
           points: { show: false },
           value: (_u: uPlot, v: number | null) => (v == null ? '–' : `${fmt(v)} ${unit}`),
         })),

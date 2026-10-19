@@ -80,9 +80,9 @@
   function describe(l: Load): string {
     switch (l.type) {
       case 'force':
-        return `(${l.fx}, ${l.fy}) ${F} at ${l.point} on ${bodyName(l.body)}${l.frame === 'body' ? ', turns with it' : ''}`;
+        return `(${l.fx}, ${l.fy}) ${F} at ${pointLabel(l.point)} on ${bodyName(l.body)}${l.frame === 'body' ? ', turns with it' : ''}${l.oppose ? ', resists motion' : ''}`;
       case 'torque':
-        return `${l.torque} ${F}·${L} on ${bodyName(l.body)}`;
+        return `${l.oppose ? '±' : ''}${l.torque} ${F}·${L} on ${bodyName(l.body)}${l.oppose ? ', resists motion' : ''}`;
       case 'spring':
         return `${l.point}–${l.pointB}, k = ${l.k} ${F}/${L}`;
       case 'torsion':
@@ -281,6 +281,22 @@
                 />
                 Direction turns with the link
               </label>
+              <label class="check">
+                <input
+                  type="checkbox"
+                  checked={l.oppose}
+                  onchange={(e) => update(l.id, { oppose: e.currentTarget.checked })}
+                />
+                Resists the motion (flips with the direction of travel)
+              </label>
+              {#if l.oppose && !r.data?.cycle && !r.res?.fullRotation}
+                <p class="note small">
+                  <Icon name="info" size={13} />
+                  <span
+                    >To see the way back too, turn on <em>There and back</em> in the Mechanism driver settings.</span
+                  >
+                </p>
+              {/if}
             {:else if l.type === 'torque'}
               <NumberField
                 label="Torque (counterclockwise +)"
@@ -288,6 +304,22 @@
                 value={l.torque}
                 oncommit={(v) => update(l.id, { torque: v })}
               />
+              <label class="check">
+                <input
+                  type="checkbox"
+                  checked={l.oppose}
+                  onchange={(e) => update(l.id, { oppose: e.currentTarget.checked })}
+                />
+                Resists the motion (flips with the direction of travel)
+              </label>
+              {#if l.oppose && !r.data?.cycle && !r.res?.fullRotation}
+                <p class="note small">
+                  <Icon name="info" size={13} />
+                  <span
+                    >To see the way back too, turn on <em>There and back</em> in the Mechanism driver settings.</span
+                  >
+                </p>
+              {/if}
               {#if driver?.type === 'rotary' && l.body === driver.body && forces.solveFor === 'input'}
                 <p class="note small">
                   <Icon name="info" size={13} />

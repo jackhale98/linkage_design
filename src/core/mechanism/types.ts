@@ -56,6 +56,8 @@ export interface DriverSpec {
   steps: number;
   /** rpm for rotary drivers, length units per second for linear drivers. */
   speed: number;
+  /** A limited sweep runs there and back (a full cycle), not one way. */
+  returnStroke: boolean;
   extras: Record<string, string>;
 }
 
@@ -73,7 +75,17 @@ export interface MechanismData {
 }
 
 export function emptyDriver(): DriverSpec {
-  return { type: 'none', line: '', lineRef: '', pointA: '', pointB: '', steps: 360, speed: 60, extras: {} };
+  return {
+    type: 'none',
+    line: '',
+    lineRef: '',
+    pointA: '',
+    pointB: '',
+    steps: 360,
+    speed: 60,
+    returnStroke: false,
+    extras: {},
+  };
 }
 
 export function emptyMechanism(): MechanismData {

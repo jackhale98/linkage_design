@@ -1,7 +1,7 @@
 // Everything the Motion workspace needs, computed from the project.
 
 import type { Project } from '../model/project';
-import { driverRate, type MotionData } from './analysis';
+import { cycleFrames, driverRate, type MotionData } from './analysis';
 import { KinematicSystem } from './kinematics';
 import { buildModel, syncMechanism, type MechanismIssue, type MechanismModel } from './model';
 import { sweep, type SweepResult } from './sweep';
@@ -79,11 +79,14 @@ export function computeMotion(project: Project): MotionResult {
   const res = sweep(sys, { start: range.start * toSolver, end: range.end * toSolver, steps: range.steps });
   if (res.error) issues.push({ severity: 'error', message: res.error });
   const rate = driverRate(model.driver.type, spec.speed, range.start, range.end);
+  const cycle = !!spec.returnStroke && !res.fullRotation;
   const data: MotionData = {
     sys,
     res,
     rate,
     units: { length: project.meta.length_unit, angle: project.meta.angle_unit },
+    frames: cycleFrames(res, rate, cycle),
+    cycle,
   };
   return { model, sys, mobility, freedom, range, res, data, issues };
 }

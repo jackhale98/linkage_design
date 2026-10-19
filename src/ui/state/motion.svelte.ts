@@ -2,8 +2,9 @@
 // animation playback and plot choices.
 
 import * as medit from '../../core/mechanism/edit';
-import { reachable, quantities, type Quantity } from '../../core/mechanism/analysis';
+import { quantities, type CycleFrame, type Quantity } from '../../core/mechanism/analysis';
 import { computeMotion, type MotionResult } from '../../core/mechanism/motion';
+import type { Attach } from '../../core/mechanism/kinematics';
 import type { Frame } from '../../core/mechanism/sweep';
 import type { DriverSpec, JointType } from '../../core/mechanism/types';
 import { angleScale, type Project } from '../../core/model/project';
@@ -15,11 +16,21 @@ import type { CanvasPointer, PointerResult } from '../lib/canvasEvents';
 import { worldToScreen } from '../lib/view';
 import { store } from './project.svelte';
 import { toasts } from './toasts.svelte';
+import { ui } from './ui.svelte';
 
 type Vec = [number, number];
 
 function plain(p: Project): Project {
   return $state.snapshot(p) as Project;
+}
+
+/** A drag in progress: where it holds the mechanism, and the pose so far. */
+interface Drag {
+  attach: Attach;
+  q: number[];
+  sx: number;
+  sy: number;
+  moved: boolean;
 }
 
 /** Seconds per stroke (or revolution) at the auto playback pace. */
@@ -44,7 +55,7 @@ class MotionUi {
 
   /** Kinematics for the current project (recomputed lazily when read). */
   result: MotionResult = $derived.by(() => computeMotion(plain(store.project)));
-  frames: Frame[] = $derived(this.result.res ? reachable(this.result.res) : []);
+  frames: CycleFrame[] = $derived(this.result.data?.frames ?? []);
   quantities: Quantity[] = $derived(
     this.result.data ? quantities(this.result.sys, this.result.data.units) : [],
   );
@@ -73,6 +84,20 @@ class MotionUi {
   /** Load being edited in the Forces panel. */
   selectedLoad = $state<string | null>(null);
 
+  /** A pose dragged by hand where there's no sweep to follow (e.g. the Mechanism workspace). */
+  testPose = $state.raw<{ result: MotionResult; q: number[] } | null>(null);
+  #drag: Drag | null = null;
+
+  /** Dragging moves along the sweep (Motion, Forces), rather than posing freely (Mechanism). */
+  get followsSweep(): boolean {
+    return (ui.workspace === 'motion' || ui.workspace === 'forces') && this.frames.length > 1;
+  }
+
+  /** The hand-dragged pose, if it belongs to the current mechanism. */
+  get testQ(): number[] | null {
+    return this.testPose && this.testPose.result === this.result ? this.testPose.q : null;
+  }
+
   #direction = 1;
   #raf = 0;
   #last = 0;
@@ -83,13 +108,13 @@ class MotionUi {
     return Math.max(0, Math.min(n - 1, Math.round(this.phase)));
   }
 
-  get frame(): Frame | null {
+  get frame(): CycleFrame | null {
     const i = this.frameIndex;
     return i >= 0 ? this.frames[i]! : null;
   }
 
   /** The pose between sweep steps at the exact playback position (smooth animation). */
-  get displayFrame(): Frame | null {
+  get displayFrame(): CycleFrame | null {
     const n = this.frames.length;
     if (n === 0) return null;
     const p = Math.max(0, Math.min(n - 1, this.phase));
@@ -100,7 +125,14 @@ class MotionUi {
     const b = this.frames[i + 1]!;
     if (f > 1 - 1e-6) return b;
     const lerp = (x: number[], y: number[]) => x.map((v, k) => v + (y[k]! - v) * f);
-    return { t: a.t + (b.t - a.t) * f, q: lerp(a.q, b.q), qd: lerp(a.qd, b.qd), qdd: lerp(a.qdd, b.qdd) };
+    return {
+      t: a.t + (b.t - a.t) * f,
+      q: lerp(a.q, b.q),
+      qd: lerp(a.qd, b.qd),
+      qdd: lerp(a.qdd, b.qdd),
+      dir: f < 0.5 ? a.dir : b.dir,
+      time: a.time + (b.time - a.time) * f,
+    };
   }
 
   /** Positions of every mechanism point at a frame (null = the drawn pose). */
@@ -112,6 +144,46 @@ class MotionUi {
     if (!frame) return out;
     for (const b of model.bodies) for (const p of b.points) out.set(p, sys.pos(frame.q, sys.attach(p, b.id)));
     return out;
+  }
+
+  /** Positions of every mechanism point at body coordinates q. */
+  poseAtQ(q: number[]): Map<string, Vec> {
+    const { model, sys } = this.result;
+    // A fresh value per call, not reactive state.
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
+    const out = new Map<string, Vec>(model.positions);
+    for (const b of model.bodies) for (const p of b.points) out.set(p, sys.pos(q, sys.attach(p, b.id)));
+    return out;
+  }
+
+  /** Move the playback position to where the driver input is t (nearest the current position). */
+  seekInput(t: number): void {
+    const fr = this.frames;
+    const n = fr.length;
+    if (n < 2) return;
+    const rotary = this.result.sys.driver?.type === 'rotary';
+    const cur = this.frame?.t ?? fr[0]!.t;
+    const tt = rotary ? t + Math.round((cur - t) / (2 * Math.PI)) * 2 * Math.PI : t;
+    let best = -1;
+    let bestD = Infinity;
+    for (let k = 0; k < n - 1; k++) {
+      const a = fr[k]!.t;
+      const b = fr[k + 1]!.t;
+      if (a === b || (tt - a) * (tt - b) > 0) continue;
+      const p = k + (tt - a) / (b - a);
+      const d = Math.abs(p - this.phase);
+      if (d < bestD) {
+        bestD = d;
+        best = p;
+      }
+    }
+    if (best < 0) {
+      // Outside the swept range: go to the nearer end.
+      best = Math.abs(fr[0]!.t - tt) <= Math.abs(fr[n - 1]!.t - tt) ? 0 : n - 1;
+      if (this.result.data?.cycle)
+        best = Math.abs(fr[0]!.t - tt) <= Math.abs(fr[(n - 1) / 2]!.t - tt) ? 0 : (n - 1) / 2;
+    }
+    this.phase = best;
   }
 
   /** Paths of the traced points across all reachable frames. */
@@ -182,9 +254,11 @@ class MotionUi {
     // otherwise a multiple of real time, |rate| / spacing between frames.
     const spacing = Math.abs(this.frames[1]!.t - this.frames[0]!.t) || 1;
     const fps =
-      this.playbackSpeed > 0 ? (Math.abs(data.rate) / spacing) * this.playbackSpeed : (n - 1) / AUTO_PASS_S;
+      this.playbackSpeed > 0
+        ? (Math.abs(data.rate) / spacing) * this.playbackSpeed
+        : (n - 1) / (data.cycle ? 2 * AUTO_PASS_S : AUTO_PASS_S);
     let p = this.phase + this.#direction * fps * dt;
-    if (this.result.res?.fullRotation) {
+    if (this.result.res?.fullRotation || data.cycle) {
       // The last frame repeats the first: wrap over n - 1 frames.
       const m = n - 1;
       p = ((p % m) + m) % m;
@@ -239,13 +313,53 @@ class MotionUi {
     return best;
   }
 
+  /** Where a drag takes hold: the point picked, or the spot on the link under the cursor. */
+  grab(hit: { kind: 'point' | 'body'; id: string }, ev: CanvasPointer): Drag | null {
+    const { sys, model } = this.result;
+    const q = this.followsSweep ? (this.displayFrame?.q ?? sys.q0()) : (this.testQ ?? sys.q0());
+    let attach: Attach | null = null;
+    if (hit.kind === 'point') {
+      const body = model.groundPoints.has(hit.id) ? undefined : model.pointBodies.get(hit.id)?.[0];
+      if (body) attach = sys.attach(hit.id, body);
+    } else {
+      const i = sys.bodyIndex.get(hit.id);
+      if (i !== undefined) {
+        const phi = q[3 * i + 2]!;
+        const dx = ev.wx - q[3 * i]!;
+        const dy = ev.wy - q[3 * i + 1]!;
+        attach = {
+          body: i,
+          s: [Math.cos(phi) * dx + Math.sin(phi) * dy, -Math.sin(phi) * dx + Math.cos(phi) * dy],
+        };
+      }
+    }
+    return attach ? { attach, q: q.slice(), sx: ev.sx, sy: ev.sy, moved: false } : null;
+  }
+
   pointer(ev: CanvasPointer, pose: Map<string, Vec>): PointerResult {
     if (ev.type === 'leave') {
       this.hover = null;
       return;
     }
     if (ev.type === 'move') {
+      const drag = this.#drag;
+      if (drag) {
+        if (!drag.moved && Math.hypot(ev.sx - drag.sx, ev.sy - drag.sy) < 4) return;
+        drag.moved = true;
+        this.pause();
+        const { sys } = this.result;
+        drag.q = sys.dragTo(drag.q, drag.attach, [ev.wx, ev.wy]);
+        if (this.followsSweep) {
+          const t = sys.inputAt(drag.q);
+          if (t !== null) this.seekInput(t);
+        } else this.testPose = { result: this.result, q: drag.q };
+        return;
+      }
       this.hover = this.pick(ev, pose)?.id ?? null;
+      return;
+    }
+    if (ev.type === 'up') {
+      this.#drag = null;
       return;
     }
     if (ev.type === 'tap') {
@@ -262,6 +376,7 @@ class MotionUi {
         : [...this.selection, hit.id];
     } else {
       this.selection = [hit.id];
+      this.#drag = this.grab(hit, ev);
     }
     return 'handled';
   }

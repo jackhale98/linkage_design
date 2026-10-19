@@ -20,9 +20,8 @@
 
 import { solveDamped, solveSquare, RowSpace } from '../math/linalg';
 import type { MotionResult } from '../mechanism/motion';
-import { reachable } from '../mechanism/analysis';
+import type { CycleFrame } from '../mechanism/analysis';
 import type { Attach } from '../mechanism/kinematics';
-import type { Frame } from '../mechanism/sweep';
 import { GROUND, type Body } from '../mechanism/types';
 import { inertiaFactor, weightPerMass, type ForceUnits, type ForcesData } from './types';
 
@@ -49,6 +48,8 @@ export interface ForceFrame {
   power: number;
   /** Spring tension (springs) or torque (torsion), by load ID. */
   springs: Map<string, number>;
+  /** Applied forces and torques as they act at this position (resisting loads flip with the motion). */
+  applied: Map<string, { at?: Vec; F?: Vec; T?: number }>;
   /** Torque (or force along the slot) the output delivers to its load; NaN when solving for the input. */
   output: number;
   /** The input and output as forces at the chosen points (at right angles to the radius); NaN if unset. */
@@ -135,7 +136,7 @@ export function solveForces(
   const empty: ForceResult = { frames: [], indeterminate: false, issues };
   const { sys, res, data } = motion;
   if (!res || !data || !sys.driver) return empty;
-  const frames = reachable(res);
+  const frames = data.frames;
   if (!frames.length) return empty;
 
   const fI = inertiaFactor(units);
@@ -234,22 +235,35 @@ export function solveForces(
   // loads); report them as exact zeros so they don't show as tiny forces.
   const tol = 1e-9 * Math.max(0, ...loadScale);
   const clean = (v: number, t: number) => (Math.abs(v) <= t ? 0 : v);
-  for (const fr of out) {
+  out.forEach((fr, idx) => {
     for (const r of fr.joints.values()) {
       r.fx = clean(r.fx, tol);
       r.fy = clean(r.fy, tol);
       r.moment = clean(r.moment, tol * sys.scale);
     }
-    fr.driver = clean(fr.driver, sys.driver.type === 'rotary' ? tol * sys.scale : tol);
-    fr.power = fr.driver * rate * toWatts;
+    fr.driver = clean(fr.driver, sys.driver!.type === 'rotary' ? tol * sys.scale : tol);
+    fr.power = fr.driver * rate * frames[idx]!.dir * toWatts;
     fr.output = clean(fr.output, output?.kind === 'rotary' ? tol * sys.scale : tol);
     fr.inputForce = fr.driver / inputArm;
     fr.outputForce = fr.output / outputArm;
-  }
+  });
   return { frames: out, indeterminate, issues };
 
-  function frameForces(f: Frame): ForceFrame {
+  function frameForces(f: CycleFrame): ForceFrame {
     const n = sys.n;
+    const vin = rate * f.dir; // input rate, reversed on the way back
+    const applied = new Map<string, { at?: Vec; F?: Vec; T?: number }>();
+    /** Direction of motion along u at point p of a body, or of its rotation: +1, -1, or 0 when still. */
+    const motionSign = (body: string, p: Vec | null, u: Vec | null): number => {
+      const i = sys.bodyIndex.get(body);
+      if (i === undefined || !vin) return 0;
+      const w = f.qd[3 * i + 2]!;
+      if (!p || !u) return Math.abs(w) < 1e-12 ? 0 : Math.sign(w * vin);
+      const ref: Vec = [f.q[3 * i]!, f.q[3 * i + 1]!];
+      const v: Vec = [f.qd[3 * i]! - w * (p[1] - ref[1]), f.qd[3 * i + 1]! + w * (p[0] - ref[0])];
+      const along = v[0] * u[0] + v[1] * u[1];
+      return Math.abs(along) < 1e-12 * sys.scale ? 0 : Math.sign(along * vin);
+    };
     const Q = new Array<number>(n).fill(0);
     const refPos = (i: number): Vec => [f.q[3 * i]!, f.q[3 * i + 1]!];
     const addForce = (body: string, at: Vec, F: Vec) => {
@@ -283,9 +297,19 @@ export function solveForces(
           const a = phi(l.body);
           F = [Math.cos(a) * l.fx - Math.sin(a) * l.fy, Math.sin(a) * l.fx + Math.cos(a) * l.fy];
         }
+        if (l.oppose) {
+          // Along its line of action, always against the point's motion.
+          const mag = Math.hypot(F[0], F[1]);
+          const u: Vec = mag > 0 ? [F[0] / mag, F[1] / mag] : [0, 0];
+          const sgn = motionSign(l.body, at, u);
+          F = [-sgn * mag * u[0], -sgn * mag * u[1]];
+        }
         addForce(l.body, at, F);
+        applied.set(l.id, { at, F });
       } else if (l.type === 'torque') {
-        addTorque(l.body, l.torque);
+        const T = l.oppose ? -motionSign(l.body, null, null) * Math.abs(l.torque) : l.torque;
+        addTorque(l.body, T);
+        applied.set(l.id, { T });
       } else if (l.type === 'spring') {
         const pa = pointPos(l.point);
         const pb = pointPos(l.pointB);
@@ -339,8 +363,8 @@ export function solveForces(
       if (forces.mode === 'kinetostatic') {
         const a = sys.acc(f.q, f.qd, f.qdd, m.at);
         const i = sys.bodyIndex.get(id)!;
-        const alpha = f.qdd[3 * i + 2]! * rate * rate;
-        addForce(id, com, [-m.mass * a[0] * rate * rate * fI, -m.mass * a[1] * rate * rate * fI]);
+        const alpha = f.qdd[3 * i + 2]! * vin * vin;
+        addForce(id, com, [-m.mass * a[0] * vin * vin * fI, -m.mass * a[1] * vin * vin * fI]);
         addTorque(id, -m.inertia * alpha * fI);
       }
     }
@@ -411,28 +435,28 @@ export function solveForces(
         driver = -lam; // force on point A along (A - B): + pushes the ends apart
       }
     }
-    const power = driver * rate * toWatts;
+    const power = driver * vin * toWatts;
 
     // Virtual-work check: the driver's power balances the power of all other loads.
     let loadPower = 0;
-    let scale = Math.abs(driver * rate);
+    let scale = Math.abs(driver * vin);
     for (let k = 0; k < n; k++) {
-      const term = Q[k]! * f.qd[k]! * rate;
+      const term = Q[k]! * f.qd[k]! * vin;
       loadPower += term;
       scale = Math.max(scale, Math.abs(term));
     }
     // The output holder's generalized force is -outRow * lamOut; the output
     // delivers the opposite to its load.
     let outputValue = NaN;
-    let effortPower = driver * rate;
+    let effortPower = driver * vin;
     if (outRow && output) {
       const i = output.body;
       const hold = output.kind === 'rotary' ? -outRow[3 * i + 2]! * lamOut : -lamOut;
       outputValue = -hold;
       // Rate of the output coordinate (angle, or position along the slot).
       let speed = 0;
-      if (output.kind === 'rotary') speed = f.qd[3 * i + 2]! * rate;
-      else for (let c = 0; c < 3; c++) speed += outRow[3 * i + c]! * f.qd[3 * i + c]! * rate;
+      if (output.kind === 'rotary') speed = f.qd[3 * i + 2]! * vin;
+      else for (let c = 0; c < 3; c++) speed += outRow[3 * i + c]! * f.qd[3 * i + c]! * vin;
       effortPower = hold * speed;
       scale = Math.max(scale, Math.abs(effortPower));
     }
@@ -445,6 +469,7 @@ export function solveForces(
       inputForce: NaN,
       outputForce: NaN,
       springs,
+      applied,
       balance,
     };
   }
