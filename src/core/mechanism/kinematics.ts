@@ -15,7 +15,7 @@
 // gamma from r_P'' = J_P q'' - phi_i'^2 (r_P - r_i) plus each constraint's own
 // curvature (Hessian) term.
 
-import { normInf, solveMinNorm, solveSquare, RowSpace } from '../math/linalg';
+import { normInf, nullSpaceBasis, solveMinNorm, solveSquare, RowSpace } from '../math/linalg';
 import { GROUND } from './types';
 import type { MechanismModel, ResolvedDriver } from './model';
 
@@ -368,6 +368,32 @@ export class KinematicSystem {
       }
     }
     return this.n - rank;
+  }
+
+  /**
+   * Independent motions the joints allow at q (an orthonormal basis of the
+   * Jacobian's null space, with rotations weighted by the model size so they
+   * compare with translations). With `holdDriver`, the driver is held fixed,
+   * leaving only the motions it cannot control.
+   */
+  freeModes(q: number[], holdDriver: boolean): number[][] {
+    const J = this.jacobian(q);
+    const rows: number[][] = [];
+    let k = 0;
+    for (const c of this.constraints) {
+      const n = c.kind === 'revolute' ? 2 : 1;
+      for (let r = 0; r < n; r++, k++) {
+        if (!holdDriver && (c.kind === 'rotary' || c.kind === 'linear')) continue;
+        const row = J[k]!.slice();
+        for (let i = 2; i < this.n; i += 3) row[i]! /= this.scale;
+        rows.push(row);
+      }
+    }
+    return nullSpaceBasis(rows, this.n, 1e-8).map((v) => {
+      const out = v.slice();
+      for (let i = 2; i < this.n; i += 3) out[i]! /= this.scale;
+      return out;
+    });
   }
 
   /** Solve positions for input t from a starting guess. */

@@ -9,6 +9,9 @@
 // - Joints: a revolute wherever two bodies (or a body and ground) share a
 //   point; a pin-in-slot wherever a sketch point_on_line constraint ties a
 //   point of one body to a line of another (a slider when its record says so).
+//   If the sketch also fixes where that point sits along the line (a distance
+//   to a point of the line's link, or a midpoint), the point can't slide: it is
+//   a pivot partway along the link, so the joint is a revolute.
 // - The driver is the one input that moves the mechanism.
 
 import type { Sketch } from '../sketch/types';
@@ -227,14 +230,41 @@ export function buildModel(sketch: Sketch, mech: MechanismData): MechanismModel 
       joints.push({ id: idFor(jointKey(p, '', a, b)), type: 'revolute', point: p, line: '', a, b });
     }
   }
+  const pointsOfBody = (b: string) =>
+    b === GROUND ? groundPoints : new Set(bodies.find((x) => x.id === b)?.points ?? []);
+  /** The sketch fixes where p sits along line l (of body lb). */
+  const located = (p: string, l: string, lb: string) => {
+    const on = pointsOfBody(lb);
+    return sketch.constraints.some(
+      (c) =>
+        !c.reference &&
+        ((c.type === 'midpoint' && c.refs[0] === p && c.refs[1] === l) ||
+          (c.type === 'distance' &&
+            c.refs.length === 2 &&
+            c.refs.includes(p) &&
+            c.refs.some((q) => q !== p && on.has(q)))),
+    );
+  };
   for (const c of sketch.constraints) {
     if (c.type !== 'point_on_line' || c.reference) continue;
     const [p, l] = c.refs as [string, string];
     const lb = lineBody.get(l);
     if (!lb) continue;
     const owners = groundPoints.has(p) ? [GROUND] : (pointBodies.get(p) ?? []);
+    const pinned = located(p, l, lb);
     for (const pb of owners) {
       if (pb === lb) continue;
+      if (pinned) {
+        joints.push({
+          id: idFor(jointKey(p, '', lb, pb)),
+          type: 'revolute',
+          point: p,
+          line: '',
+          a: lb,
+          b: pb,
+        });
+        continue;
+      }
       const key = jointKey(p, l, lb, pb);
       const type: JointType = stored.get(key)?.type === 'slider' ? 'slider' : 'pin_in_slot';
       joints.push({ id: idFor(key), type, point: p, line: l, a: lb, b: pb });

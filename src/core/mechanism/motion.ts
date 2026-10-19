@@ -5,12 +5,15 @@ import { driverRate, type MotionData } from './analysis';
 import { KinematicSystem } from './kinematics';
 import { buildModel, syncMechanism, type MechanismIssue, type MechanismModel } from './model';
 import { sweep, type SweepResult } from './sweep';
+import { mechanismFreedom, type MechanismFreedom } from './freedom';
 
 export interface MotionResult {
   model: MechanismModel;
   sys: KinematicSystem;
   /** Degrees of freedom without the driver. */
   mobility: number;
+  /** Where the extra degrees of freedom are, when there are too many. */
+  freedom: MechanismFreedom | null;
   /** Sweep range in user units (angle or length). */
   range: { start: number; end: number; steps: number };
   res: SweepResult | null;
@@ -42,6 +45,7 @@ export function computeMotion(project: Project): MotionResult {
   const def = defaultRange(project, model);
   const range = { start: spec.start ?? def.start, end: spec.end ?? def.end, steps: spec.steps };
 
+  let freedom: MechanismFreedom | null = null;
   const blocked = issues.some((i) => i.severity === 'error') || model.bodies.length === 0;
   if (!blocked) {
     if (mobility === 0)
@@ -49,16 +53,23 @@ export function computeMotion(project: Project): MotionResult {
         severity: 'error',
         message: 'The mechanism is locked (0 degrees of freedom): it is a rigid structure',
       });
-    else if (mobility > 1)
+    else if (mobility > 1) {
+      freedom = mechanismFreedom(model, sys);
+      const names = freedom.bodies.map((id) => model.bodies.find((b) => b.id === id)?.name ?? id);
+      const where = !names.length
+        ? ''
+        : freedom.held
+          ? ` With ${freedom.held} held still, ${list(names)} can still move (highlighted).`
+          : ` The highlighted links (${list(names)}) can move independently.`;
       issues.push({
         severity: 'error',
-        message: `The mechanism has ${mobility} degrees of freedom; one driver can only control one. Add links, joints or fixed points to remove ${mobility - 1}.`,
+        message: `The mechanism has ${mobility} degrees of freedom; one driver can only control one.${where} Add links, joints or fixed points to remove ${mobility - 1}.`,
       });
-    else if (!model.driver)
+    } else if (!model.driver)
       issues.push({ severity: 'warning', message: 'Choose a driver to animate the mechanism' });
   }
   if (blocked || mobility !== 1 || !model.driver)
-    return { model, sys, mobility, range, res: null, data: null, issues };
+    return { model, sys, mobility, freedom, range, res: null, data: null, issues };
 
   const toSolver = model.driver.type === 'rotary' && project.meta.angle_unit === 'deg' ? DEG : 1;
   const res = sweep(sys, { start: range.start * toSolver, end: range.end * toSolver, steps: range.steps });
@@ -70,5 +81,12 @@ export function computeMotion(project: Project): MotionResult {
     rate,
     units: { length: project.meta.length_unit, angle: project.meta.angle_unit },
   };
-  return { model, sys, mobility, range, res, data, issues };
+  return { model, sys, mobility, freedom, range, res, data, issues };
+}
+
+/** "A", "A and B", "A, B and C". */
+function list(names: string[]): string {
+  return names.length < 2
+    ? (names[0] ?? '')
+    : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }

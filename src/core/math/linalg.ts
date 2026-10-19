@@ -117,12 +117,8 @@ export class RowSpace {
   }
 }
 
-/**
- * Columns (variables) of J that are fixed by the constraints: a variable is
- * free if some null-space vector of J has a non-zero component on it.
- * Returns the null-space dimension and a per-column "free" flag.
- */
-export function nullSpaceFreedom(J: Matrix, n: number, tol = 1e-9): { dim: number; free: boolean[] } {
+/** Reduced row echelon form of J (copied), with the pivot column of each row. */
+function rref(J: Matrix, n: number, tol: number): { M: Matrix; pivotCols: number[] } {
   const M = J.map((r) => r.slice());
   const m = M.length;
   let scale = 0;
@@ -148,6 +144,16 @@ export function nullSpaceFreedom(J: Matrix, n: number, tol = 1e-9): { dim: numbe
     pivotCols.push(c);
     r++;
   }
+  return { M, pivotCols };
+}
+
+/**
+ * Columns (variables) of J that are fixed by the constraints: a variable is
+ * free if some null-space vector of J has a non-zero component on it.
+ * Returns the null-space dimension and a per-column "free" flag.
+ */
+export function nullSpaceFreedom(J: Matrix, n: number, tol = 1e-9): { dim: number; free: boolean[] } {
+  const { M, pivotCols } = rref(J, n, tol);
   const isPivot = new Array<boolean>(n).fill(false);
   pivotCols.forEach((c) => (isPivot[c] = true));
   const free = new Array<boolean>(n).fill(false);
@@ -161,6 +167,22 @@ export function nullSpaceFreedom(J: Matrix, n: number, tol = 1e-9): { dim: numbe
     });
   }
   return { dim: n - pivotCols.length, free };
+}
+
+/** An orthonormal basis of the null space of J (the motions the constraints allow). */
+export function nullSpaceBasis(J: Matrix, n: number, tol = 1e-9): Vector[] {
+  const { M, pivotCols } = rref(J, n, tol);
+  const isPivot = new Array<boolean>(n).fill(false);
+  pivotCols.forEach((c) => (isPivot[c] = true));
+  const space = new RowSpace(1e-10);
+  for (let f = 0; f < n; f++) {
+    if (isPivot[f]) continue;
+    const v = new Array<number>(n).fill(0);
+    v[f] = 1;
+    pivotCols.forEach((pc, row) => (v[pc] = -M[row]![f]!));
+    space.add(v);
+  }
+  return space.basis;
 }
 
 export function normInf(v: Vector): number {

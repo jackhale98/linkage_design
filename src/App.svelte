@@ -15,6 +15,7 @@
   import MechanismStatus from './ui/components/MechanismStatus.svelte';
   import MotionBar from './ui/components/MotionBar.svelte';
   import ForceLayer from './ui/components/ForceLayer.svelte';
+  import FreedomMarks from './ui/components/FreedomMarks.svelte';
   import { forceOverlay } from './ui/lib/forceOverlay';
   import { EXAMPLES } from './examples';
   import { motionUi } from './ui/state/motion.svelte';
@@ -42,6 +43,12 @@
     new Map(
       store.project.sketch.points.filter((p) => p.label).map((p) => [p.id, p.label] as [string, string]),
     ),
+  );
+  const sketchFreedom = $derived(
+    store.project.sketch.points.flatMap((p) => {
+      const f = sketchUi.analysis.freedom.get(p.id);
+      return f ? [{ id: p.id, at: [p.x, p.y] as [number, number], ...f }] : [];
+    }),
   );
   const traces = $derived(ui.workspace === 'motion' && motionUi.showTraces ? motionUi.tracePaths() : []);
   const forceView = $derived(
@@ -341,7 +348,11 @@
             hover={motionUi.hover}
             {traces}
             {vectors}
+            loose={motionUi.result.freedom?.bodies}
           />
+          {#if motionUi.result.freedom}
+            <FreedomMarks {view} {size} points={motionUi.result.freedom.points} tone="over" />
+          {/if}
           {#if forceView}<ForceLayer {view} {size} overlay={forceView} />{/if}
         {:else}
           <SketchLayer
@@ -358,6 +369,9 @@
             cursor={editable && sketchUi.tool === 'point' ? sketchUi.cursor : null}
             editing={sketchUi.editing}
           />
+          {#if editable && sketchUi.showFreedom}
+            <FreedomMarks {view} {size} points={sketchFreedom} />
+          {/if}
         {/if}
       {/snippet}
       {#snippet overlay({ view, size })}

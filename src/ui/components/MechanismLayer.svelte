@@ -15,6 +15,7 @@
     hover = null,
     traces = [],
     vectors = [],
+    loose = [],
   }: {
     view: View;
     size: Size;
@@ -25,10 +26,13 @@
     hover?: string | null;
     traces?: { point: string; color: string; path: Vec[] }[];
     vectors?: { point: string; v: Vec; color: string }[];
+    /** Links that can still move when they shouldn't (extra degrees of freedom). */
+    loose?: string[];
   } = $props();
 
   const S = (p: Vec): Vec => worldToScreen(view, size, p[0], p[1]);
   const sel = $derived(new Set(selection));
+  const looseSet = $derived(new Set(loose));
 
   function hull(points: Vec[]): Vec[] {
     const pts = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
@@ -147,6 +151,12 @@
     <line x1={actuator.a[0]} y1={actuator.a[1]} x2={actuator.mid[0]} y2={actuator.mid[1]} class="barrel" />
   {/if}
 
+  {#each bodies.filter((b) => looseSet.has(b.id)) as b (b.id)}
+    {#each b.segs as [p, q], i (i)}
+      <line x1={p[0]} y1={p[1]} x2={q[0]} y2={q[1]} class="loose" />
+    {/each}
+  {/each}
+
   {#each bodies as b (b.id)}
     <g class="body" class:selected={sel.has(b.id)} class:hover={hover === b.id} data-body={b.id}>
       {#if b.poly.length >= 3}
@@ -236,6 +246,13 @@
     stroke: var(--text-faint);
     stroke-width: 1.25;
     stroke-dasharray: 6 4;
+  }
+
+  .loose {
+    stroke: var(--geom-over);
+    stroke-width: 20;
+    stroke-linecap: round;
+    opacity: 0.3;
   }
 
   .plate {

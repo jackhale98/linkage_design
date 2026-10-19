@@ -11,7 +11,16 @@
 // - continuation: if a direct solve fails (a big edit), the residual is
 //   eased in by homotopy, Phi(q) - (1 - t) Phi(q0) = 0, for t from 0 to 1.
 
-import { nullSpaceFreedom, normInf, RowSpace, solveDamped, solveMinNorm, type Matrix } from '../math/linalg';
+import {
+  nullSpaceBasis,
+  nullSpaceFreedom,
+  normInf,
+  RowSpace,
+  solveDamped,
+  solveMinNorm,
+  type Matrix,
+} from '../math/linalg';
+import { pointFreedom, type PointFreedom } from '../math/freedom';
 import {
   constraintRows,
   isDimension,
@@ -306,6 +315,8 @@ export interface SketchAnalysis {
   dof: number;
   /** Points that can still move (under-constrained). */
   freePoints: Set<string>;
+  /** How each free point can move: along one direction, or anywhere in the plane. */
+  freedom: Map<string, PointFreedom>;
   /** Constraints that duplicate others (over-defining but consistent). */
   redundant: Set<string>;
   /** Constraints not satisfied by the current geometry (conflicting). */
@@ -335,6 +346,15 @@ export function analyze(sketch: Sketch, ctx: SolverContext): SketchAnalysis {
   const { dim, free } = nullSpaceFreedom(J, sys.n);
   const freePoints = new Set<string>();
   for (const [id, i] of sys.varIndex) if (free[i] || free[i + 1]) freePoints.add(id);
+  const freedom = new Map<string, PointFreedom>();
+  if (dim > 0) {
+    const N = nullSpaceBasis(J, sys.n);
+    for (const id of freePoints) {
+      const i = sys.varIndex.get(id)!;
+      const f = pointFreedom(N.map((v) => [v[i]!, v[i + 1]!] as [number, number]));
+      if (f) freedom.set(id, f);
+    }
+  }
 
   const geo = sys.geometry(q);
   const measured = new Map<string, number>();
@@ -344,7 +364,7 @@ export function analyze(sketch: Sketch, ctx: SolverContext): SketchAnalysis {
     if (ks.some((k) => k === undefined) || !matchesSignature(c.type, ks as ('point' | 'line')[])) continue;
     measured.set(c.id, measure(c, geo, ctx.angleScale));
   }
-  return { dof: dim, freePoints, redundant, unsatisfied, measured };
+  return { dof: dim, freePoints, freedom, redundant, unsatisfied, measured };
 }
 
 /** Points that can still move under the active constraints, at the current geometry. */

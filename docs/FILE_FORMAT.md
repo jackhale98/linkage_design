@@ -127,6 +127,9 @@ Rigid bodies (links). Each is a group of sketch lines that move together.
 | `lines` | | Space-separated line IDs |
 | `ground` | | Fixed to the frame |
 | `color` | | Hex colour, e.g. `#2a78d6` |
+| `mass` | | Mass in kg (N projects) or lb (lbf projects). Blank = massless. |
+| `com_x`, `com_y` | | Centre of mass in sketch coordinates at the drawn pose (blank = the middle of the link's lines) |
+| `inertia` | | Moment of inertia about the centre of mass, in mass·length² (e.g. kg·mm²) |
 
 When a project is opened or edited, the bodies are synced with the sketch:
 
@@ -142,7 +145,8 @@ When a project is opened or edited, the bodies are synced with the sketch:
 Joints are **derived from the sketch**, and this section records them so they keep stable IDs:
 
 - a **revolute** wherever two bodies, or a body and ground, share a point;
-- a **pin-in-slot** wherever a `point_on_line` constraint ties a point of one body to a line of another.
+- a **pin-in-slot** wherever a `point_on_line` constraint ties a point of one body to a line of another;
+- a **revolute** instead of a pin-in-slot when the sketch also fixes where that point sits along the line: a `distance` from it to a point of the line's link, or a `midpoint` constraint. The point can't slide, so it is a pivot partway along the link.
 
 | Column | Meaning |
 |---|---|
@@ -170,6 +174,32 @@ Joints are **derived from the sketch**, and this section records them so they ke
 |---|---|
 | `trace` | Space-separated IDs of points whose paths are drawn |
 
+### `[loads]`
+
+Applied loads for the force analysis.
+
+| Column | Used by | Meaning |
+|---|---|---|
+| `id` | all | Unique ID, e.g. `F1` |
+| `type` | all | `force`, `torque`, `spring` or `torsion` |
+| `body` | force, torque | The link the load acts on |
+| `point` | force, spring | Where a force acts; a spring's first end |
+| `point_b` | spring | The spring's second end |
+| `joint` | torsion | The pin a torsion spring acts across |
+| `fx`, `fy` | force | Components in the project force unit |
+| `frame` | force | `global` (fixed directions) or `body` (turns with the link) |
+| `torque` | torque | Counterclockwise positive, in force·length |
+| `k` | spring, torsion | Stiffness: force per length, or torque per angle unit |
+| `free` | spring, torsion | Free length or free angle. Blank = free at the drawn pose. |
+| `preload` | spring, torsion | Tension or torque at the free length or angle |
+
+### `[analysis]` (key, value)
+
+| Key | Meaning |
+|---|---|
+| `mode` | `static` (applied loads only) or `kinetostatic` (adds each link's inertia at the driver speed) |
+| `gravity` | `1` to add each link's weight, acting in −y |
+
 ## Results exports
 
 Analysis results export as separate, flat CSV files with one header row and units in the column names. They are meant for Excel, pandas or MATLAB, not for re-opening in the app.
@@ -184,3 +214,11 @@ Analysis results export as separate, flat CSV files with one header row and unit
 | Each pin between two links | Joint angle (the transmission angle where it applies) |
 
 Example column names: `P3_x [mm]`, `P3_speed [mm/s]`, `Rocker_angular_velocity [deg/s]`. Rates assume the driver turns (or extends) at the set constant speed.
+
+**Forces** (Forces → Results → Forces CSV): one row per sweep step.
+
+| Column group | Contents |
+|---|---|
+| Driver | `input`, `time [s]`, input torque (or actuator force) and input power |
+| Each joint | Force magnitude, Fx, Fy on the joint's second link (`body_b`), and the moment for slider blocks |
+| Each spring | Tension, or torque for torsion springs |

@@ -18,7 +18,7 @@
     state === 'over'
       ? 'Some constraints conflict or duplicate others. See Messages.'
       : state === 'under'
-        ? 'Blue geometry can still move. Add constraints or dimensions to define it.'
+        ? `Blue geometry can still move; arrows show which way. Click to ${sketchUi.showFreedom ? 'hide' : 'show'} the arrows.`
         : state === 'full'
           ? 'Every point is fixed by constraints and dimensions.'
           : 'Draw points and lines to start.',
@@ -28,7 +28,11 @@
 <button
   class="status {state}"
   {title}
-  onclick={() => state === 'over' && ui.openDock('messages')}
+  aria-pressed={state === 'under' ? sketchUi.showFreedom : undefined}
+  onclick={() => {
+    if (state === 'over') ui.openDock('messages');
+    else if (state === 'under') sketchUi.freedomOverride = !sketchUi.showFreedom;
+  }}
   data-testid="sketch-status"
 >
   <span class="dot"></span>{text}
@@ -52,8 +56,13 @@
     cursor: default;
   }
 
-  .status.over {
+  .status.over,
+  .status.under {
     cursor: pointer;
+  }
+
+  .status[aria-pressed='true'] {
+    border-color: var(--geom-under);
   }
 
   .dot {

@@ -12,7 +12,7 @@ It runs entirely in the browser as a static site on GitHub Pages. Nothing is upl
 
 ## Status
 
-Phases 0–2 are complete:
+Phases 0–3 are complete:
 
 - **Sketching:** points and lines with snapping; dimensions edited on the canvas (expressions allowed).
 - **Constraints:** geometric constraints, plus live constraint status while you drag.
@@ -22,10 +22,16 @@ Phases 0–2 are complete:
   - plots of position, velocity, acceleration, link angles and transmission angles;
   - range-of-motion and toggle limits, and Grashof classification;
   - kinematics CSV export.
+- **Forces:**
+  - applied forces, torques, springs and torsion springs, gravity, and link masses;
+  - static or kinetostatic (inertia) analysis at every position;
+  - joint reactions and the required input torque or actuator force, drawn on the mechanism, plotted, and exported to CSV;
+  - a virtual-work power balance check.
+- **Diagnostics:** when a sketch or mechanism has extra degrees of freedom, arrows show which points can still move and which way, and loose links are highlighted.
 - **Examples:** four-bar, slider-crank, quick-return and hydraulic boom.
 - **Files:** one CSV project file with undo/redo and autosave.
 
-Forces (joint reactions and input torque) come next, then cams. See the [design document](docs/DESIGN.md) for the architecture, solver math and roadmap, and the [file format reference](docs/FILE_FORMAT.md) for the CSV layout.
+Cams come next. See the [design document](docs/DESIGN.md) for the architecture, solver math and roadmap, and the [file format reference](docs/FILE_FORMAT.md) for the CSV layout.
 
 ## Development
 

@@ -56,6 +56,9 @@ function plain(sk: Sketch): Sketch {
   return $state.snapshot(sk) as Sketch;
 }
 
+/** Freedom arrows appear on their own once the sketch is down to this many DOF. */
+export const FREEDOM_AUTO_DOF = 6;
+
 class SketchUi {
   tool = $state<SketchTool>('select');
   selection = $state<string[]>([]);
@@ -69,6 +72,11 @@ class SketchUi {
   cursor = $state<Snap | null>(null);
   /** Entities picked so far with the dimension tool. */
   pending = $state<string[]>([]);
+  /** Freedom arrows: null = automatic (shown when only a few DOF remain). */
+  freedomOverride = $state<boolean | null>(null);
+  get showFreedom(): boolean {
+    return this.freedomOverride ?? (this.analysis.dof > 0 && this.analysis.dof <= FREEDOM_AUTO_DOF);
+  }
 
   ctx: SolverContext = $derived({ angleScale: angleScale(store.project) });
   analysis: SketchAnalysis = $derived.by(() => analyze(plain(store.project.sketch), this.ctx));

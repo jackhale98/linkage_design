@@ -1,6 +1,6 @@
 # Linkage Design — Design Document
 
-Status: **approved** · Phases 0–2 complete · Last updated: 2026-10-19
+Status: **approved** · Phases 0–3 complete · Last updated: 2026-10-19
 
 A free, open source, browser-based tool for designing planar mechanisms,
 linkages and cams. It runs as a static site on GitHub Pages (this
@@ -131,7 +131,9 @@ Sketch ──► Mechanism ──► Motion ──► Forces          Cam (indep
   - bodies touching two or more ground points.
 - **Joints are derived, not drawn:**
   - a revolute where bodies share a point;
-  - a pin-in-slot where a `point_on_line` constraint links a point of one body to a line of another, which can be switched to a slider block.
+  - a pin-in-slot where a `point_on_line` constraint links a point of one body to a line of another, which can be switched to a slider block;
+  - a revolute instead, when a dimension also fixes where that point sits along the line (a pivot partway along a link). This keeps the mechanism's mobility consistent with the sketch's degrees of freedom.
+- **Finding extra freedom:** when a mechanism has more than one degree of freedom, the app takes the null space of the joint Jacobian with the driver held (rotations weighted by the model size), then highlights the links that can still move. Each moving point gets arrows: a double arrow when it can only slide one way, four arrows when it is free in the plane. The direction comes from the 2×2 spread of the point's velocity over an orthonormal null-space basis, so it doesn't depend on the choice of basis. The sketch uses the same arrows on free points. They appear on their own once six or fewer degrees of freedom remain, and the status pill toggles them.
 - **The driver** is stored as a rotary input (a line's angle, from +x or from another line) or a linear actuator (the distance between two points). Any angle or distance dimension in the sketch can be turned into a driver with one click.
 - **Analysis:** the sweep runs from the drawn pose, forwards and backwards, and locates toggle limits by bisection. Results are checked against the closed-form four-bar (Norton) and exact slider-crank equations.
 
