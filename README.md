@@ -12,7 +12,15 @@ It runs entirely in the browser as a static site on GitHub Pages. Nothing is upl
 
 ## Status
 
-Phase 0 (foundation) is complete: the app shell, themes, canvas pan/zoom, project settings, undo/redo, autosave, and project CSV save/open. Sketching is next. See the [design document](docs/DESIGN.md) for the architecture, solver math, file format and roadmap.
+Phases 0 and 1 are complete:
+
+- **Sketching:** points and lines with snapping and horizontal/vertical inference; dimensions (length, distance, angle) edited right on the canvas, with expressions like `=2*25+10`.
+- **Constraints:** horizontal, vertical, parallel, perpendicular, coincident, point on line, midpoint, equal length.
+- **Constraint status:** live solving while you drag. Colours show under-, fully and over-defined geometry, and conflicts are explained.
+- **Editing:** editable tables, undo/redo and autosave.
+- **Files:** project CSV save/open.
+
+Mechanisms, motion and forces come next. See the [design document](docs/DESIGN.md) for the architecture, solver math and roadmap, and the [file format reference](docs/FILE_FORMAT.md) for the CSV layout.
 
 ## Development
 

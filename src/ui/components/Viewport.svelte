@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import Icon from './Icon.svelte';
+  import type { CanvasPointer, PointerResult } from '../lib/canvasEvents';
   import {
     fitBox,
     formatCoord,
@@ -10,16 +11,44 @@
     screenToWorld,
     worldToScreen,
     zoomAt,
+    type Size,
     type View,
   } from '../lib/view';
 
+  export interface ViewCtx {
+    view: View;
+    size: Size;
+  }
+
+  type Box = { minX: number; minY: number; maxX: number; maxY: number };
+
   let {
     unit = 'mm',
-    tool = 'select',
+    panMode = false,
+    cursor = 'default',
+    onpointer,
+    extents,
+    content,
+    overlay,
+    hudRight,
+    badge,
     children,
-  }: { unit?: string; tool?: 'select' | 'pan'; children?: Snippet } = $props();
+  }: {
+    unit?: string;
+    /** Left-drag always pans (pan tool). */
+    panMode?: boolean;
+    cursor?: string;
+    onpointer?: (ev: CanvasPointer) => PointerResult;
+    /** World box to fit; the default home view is used when undefined. */
+    extents?: () => Box | undefined;
+    content?: Snippet<[ViewCtx]>;
+    overlay?: Snippet<[ViewCtx]>;
+    hudRight?: Snippet;
+    badge?: Snippet;
+    children?: Snippet;
+  } = $props();
 
-  const HOME = { minX: -40, minY: -40, maxX: 240, maxY: 160 };
+  const HOME: Box = { minX: -40, minY: -40, maxX: 240, maxY: 160 };
 
   let host: HTMLDivElement;
   let size = $state({ width: 0, height: 0 });
@@ -34,9 +63,10 @@
   const majorPath = $derived(size.width ? gridPath(view, size, grid.major) : '');
   const origin = $derived(worldToScreen(view, size, 0, 0));
   const scaleBarPx = $derived(grid.major * view.scale);
+  const ctx = $derived<ViewCtx>({ view, size });
 
   export function fit(): void {
-    if (size.width && size.height) view = fitBox(size, HOME);
+    if (size.width && size.height) view = fitBox(size, extents?.() ?? HOME);
   }
 
   function zoomBy(factor: number) {
@@ -56,6 +86,7 @@
 
     // Wheel must be non-passive to stop the page from scrolling.
     const onWheel = (e: WheelEvent) => {
+      if (fromOverlay(e)) return;
       e.preventDefault();
       const rect = host.getBoundingClientRect();
       const sx = e.clientX - rect.left;
@@ -90,66 +121,127 @@
     };
   });
 
-  // Pointer handling: one pointer pans, two pointers pinch-zoom (touch).
+  // Pointer handling. A press either pans the view (one pointer pans, two
+  // pinch-zoom) or is handed to `onpointer` until release.
   // Plain Map on purpose: pointer tracking is event bookkeeping, not rendered state.
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
   const pointers = new Map<number, [number, number]>();
   let pinch: { dist: number; mid: [number, number] } | null = null;
+  let mode: 'none' | 'pan' | 'handler' = 'none';
+  let tap: { x: number; y: number } | null = null;
 
-  function local(e: PointerEvent): [number, number] {
+  function local(e: MouseEvent): [number, number] {
     const rect = host.getBoundingClientRect();
     return [e.clientX - rect.left, e.clientY - rect.top];
   }
 
-  /** Events from overlaid controls (zoom buttons, cards) must not pan the canvas. */
+  /** Events from overlaid controls (zoom buttons, cards, editors) must not reach the canvas. */
   function fromOverlay(e: Event): boolean {
-    return !!(e.target as Element | null)?.closest('.hud, .overlay-top');
+    return !!(e.target as Element | null)?.closest('.hud, .overlay-top, .overlay, .badge');
+  }
+
+  function canvasEvent(type: CanvasPointer['type'], e: MouseEvent): CanvasPointer {
+    const [sx, sy] = local(e);
+    const [wx, wy] = screenToWorld(view, size, sx, sy);
+    return {
+      type,
+      sx,
+      sy,
+      wx,
+      wy,
+      view,
+      size,
+      button: e.button,
+      shift: e.shiftKey,
+      alt: e.altKey,
+      mod: e.ctrlKey || e.metaKey,
+    };
+  }
+
+  function startPan(e: PointerEvent, allowTap: boolean) {
+    mode = 'pan';
+    panning = true;
+    tap = allowTap ? { x: e.clientX, y: e.clientY } : null;
   }
 
   function onPointerDown(e: PointerEvent) {
     if (fromOverlay(e)) return;
-    const wantsPan = e.button === 1 || (e.button === 0 && (tool === 'pan' || tool === 'select' || spaceDown));
-    if (!wantsPan && e.pointerType === 'mouse') return;
     host.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, local(e));
+    e.preventDefault();
     if (pointers.size === 2) {
+      // Second finger: switch to pinch, ending whatever the first finger started.
+      if (mode === 'handler') onpointer?.(canvasEvent('up', e));
       const [a, b] = [...pointers.values()] as [[number, number], [number, number]];
       pinch = { dist: Math.hypot(a[0] - b[0], a[1] - b[1]), mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] };
+      startPan(e, false);
+      return;
     }
-    panning = true;
-    e.preventDefault();
+    if (e.button === 1 || spaceDown || panMode) {
+      startPan(e, false);
+      return;
+    }
+    const r = onpointer ? onpointer(canvasEvent('down', e)) : e.button === 0 ? 'pan' : undefined;
+    if (r === 'handled') mode = 'handler';
+    else if (r === 'pan') startPan(e, e.button === 0);
+    else mode = 'none';
   }
 
   function onPointerMove(e: PointerEvent) {
     const p = local(e);
-    if (e.pointerType === 'mouse') pointer = screenToWorld(view, size, p[0], p[1]);
+    if (e.pointerType !== 'touch') pointer = screenToWorld(view, size, p[0], p[1]);
     const prev = pointers.get(e.pointerId);
-    if (!prev) return;
+    if (!prev) {
+      if (e.pointerType !== 'touch' && !fromOverlay(e)) onpointer?.(canvasEvent('move', e));
+      return;
+    }
     pointers.set(e.pointerId, p);
-    if (pointers.size === 2 && pinch) {
-      const [a, b] = [...pointers.values()] as [[number, number], [number, number]];
-      const dist = Math.hypot(a[0] - b[0], a[1] - b[1]);
-      const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-      let v = panBy(view, mid[0] - pinch.mid[0], mid[1] - pinch.mid[1]);
-      if (pinch.dist > 0) v = zoomAt(v, size, mid[0], mid[1], dist / pinch.dist);
-      view = v;
-      pinch = { dist, mid };
-    } else if (pointers.size === 1) {
-      view = panBy(view, p[0] - prev[0], p[1] - prev[1]);
+    if (mode === 'handler') {
+      onpointer?.(canvasEvent('move', e));
+    } else if (mode === 'pan') {
+      if (pointers.size === 2 && pinch) {
+        const [a, b] = [...pointers.values()] as [[number, number], [number, number]];
+        const dist = Math.hypot(a[0] - b[0], a[1] - b[1]);
+        const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        let v = panBy(view, mid[0] - pinch.mid[0], mid[1] - pinch.mid[1]);
+        if (pinch.dist > 0) v = zoomAt(v, size, mid[0], mid[1], dist / pinch.dist);
+        view = v;
+        pinch = { dist, mid };
+      } else if (pointers.size === 1) {
+        view = panBy(view, p[0] - prev[0], p[1] - prev[1]);
+      }
+      if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 3) tap = null;
     }
   }
 
   function onPointerUp(e: PointerEvent) {
+    if (!pointers.has(e.pointerId)) return;
     pointers.delete(e.pointerId);
     if (pointers.size < 2) pinch = null;
-    if (pointers.size === 0) panning = false;
+    if (pointers.size > 0) return;
+    if (mode === 'handler') onpointer?.(canvasEvent('up', e));
+    else if (mode === 'pan' && tap && e.type === 'pointerup') onpointer?.(canvasEvent('tap', e));
+    mode = 'none';
+    tap = null;
+    panning = false;
+  }
+
+  function onDblClick(e: MouseEvent) {
+    if (fromOverlay(e)) return;
+    if (onpointer?.(canvasEvent('dblclick', e)) !== 'handled' && !onpointer) fit();
+  }
+
+  function onLeave(e: PointerEvent) {
+    pointer = null;
+    if (mode === 'none') onpointer?.(canvasEvent('leave', e));
   }
 </script>
 
 <div
   class="viewport"
   class:panning
-  class:can-pan={tool === 'pan' || spaceDown}
+  class:can-pan={panMode || spaceDown}
+  style:cursor={panning || panMode || spaceDown ? undefined : cursor}
   bind:this={host}
   role="application"
   aria-label="Drawing canvas. Drag to pan, scroll to zoom."
@@ -157,8 +249,9 @@
   onpointermove={onPointerMove}
   onpointerup={onPointerUp}
   onpointercancel={onPointerUp}
-  onpointerleave={() => (pointer = null)}
-  ondblclick={(e) => !fromOverlay(e) && fit()}
+  onpointerleave={onLeave}
+  ondblclick={onDblClick}
+  oncontextmenu={(e) => !fromOverlay(e) && e.preventDefault()}
 >
   <svg width={size.width} height={size.height} class="canvas">
     <path d={minorPath} class="grid-minor" />
@@ -170,10 +263,19 @@
       <text x="32" y="4">x</text>
       <text x="-3" y="-33">y</text>
     </g>
+    {#if size.width}{@render content?.(ctx)}{/if}
   </svg>
+
+  {#if overlay && size.width}
+    <div class="overlay">{@render overlay(ctx)}</div>
+  {/if}
 
   {#if children}
     <div class="overlay-top">{@render children()}</div>
+  {/if}
+
+  {#if badge}
+    <div class="badge">{@render badge()}</div>
   {/if}
 
   <div class="hud left">
@@ -189,6 +291,7 @@
   </div>
 
   <div class="hud right">
+    {@render hudRight?.()}
     <button class="btn icon" title="Zoom out" aria-label="Zoom out" onclick={() => zoomBy(1 / 1.25)}>
       <Icon name="zoomOut" />
     </button>
@@ -269,6 +372,22 @@
 
   .overlay-top :global(*) {
     pointer-events: auto;
+  }
+
+  .overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .overlay :global(*) {
+    pointer-events: auto;
+  }
+
+  .badge {
+    position: absolute;
+    top: var(--space-3);
+    right: var(--space-3);
   }
 
   .hud {

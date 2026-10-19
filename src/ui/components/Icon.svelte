@@ -46,6 +46,8 @@
     table: ['M3.5 4.5h17v15h-17z', 'M3.5 9.5h17M3.5 14.5h17M10 4.5v15'],
     results: ['M6 20V11M12 20V5M18 20v-6'],
     messages: ['M4 5h16v11H9l-4 3.5V16H4z'],
+    magnet: ['M6 4v7a6 6 0 0 0 12 0V4', 'M6 8h4M14 8h4'],
+    trash: ['M4 7h16', 'M9 7V4h6v3', 'M6 7l1 13h10l1-13'],
   } as const;
 
   export type IconName = keyof typeof ICONS;

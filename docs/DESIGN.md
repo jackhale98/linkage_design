@@ -1,6 +1,6 @@
 # Linkage Design — Design Document
 
-Status: **approved** · Phase 0 complete · Last updated: 2026-10-19
+Status: **approved** · Phases 0–1 complete · Last updated: 2026-10-19
 
 A free, open source, browser-based tool for designing planar mechanisms,
 linkages and cams. It runs as a static site on GitHub Pages (this
@@ -167,6 +167,24 @@ There is one numerical core with two formulations.
 - **Over-constraint diagnosis:** if residuals don't converge or the rank is
   deficient, the app identifies a minimal conflicting or redundant set by
   testing constraint removal (cheap at this size) and highlights it.
+- **Editing policy (as built):** edits keep the sketch free of
+  over-definition.
+  - A relation that adds nothing is refused ("already implied").
+  - A dimension that adds nothing becomes a reference dimension.
+  - A constraint that can't be satisfied, or would collapse a line to zero
+    length, is refused and the sketch is left unchanged.
+  - Older constraints made fully redundant by a new one are removed
+    (relations) or turned into references (dimensions), with a notice.
+  - Over-defined files can still be opened; the offending constraints are
+    flagged in red and listed in Messages.
+- **Large edits:** if a direct Newton solve fails (for example a big
+  dimension change), the solver eases in by homotopy,
+  Φ(q) − (1 − t)·Φ(q₀) = 0 for t from 0 to 1, which keeps the geometry on the
+  branch it was drawn in.
+- **Follow-up:** an angle dimension between two lines currently shows the
+  angle between their drawn directions, which can be the exterior angle.
+  CAD tools usually let the label's quadrant choose the angle shown; that is
+  planned.
 
 ### 5.3 Mechanism solver (body coordinates)
 
@@ -382,13 +400,13 @@ L3,P3,P4,0
 L4,P1,P4,1
 
 [constraints]
-id,type,a,b,c,value,reference
-C1,distance,P1,P2,,50,0
-C2,distance,P2,P3,,110,0
-C3,distance,P3,P4,,90,0
-C4,distance,P1,P4,,150,0
-C5,horizontal,L4,,,,0
-C6,angle,L4,L1,,36.87,0
+id,type,a,b,c,value,reference,label_dx,label_dy
+C1,distance,P1,P2,,50,0,,
+C2,distance,P2,P3,,110,0,,
+C3,distance,P3,P4,,90,0,,
+C4,distance,P1,P4,,150,0,,
+C5,horizontal,L4,,,,0,,
+C6,angle,L4,L1,,36.87,0,,
 
 [bodies]
 id,name,entities,ground,mass,com_x,com_y,inertia,color

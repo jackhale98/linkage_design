@@ -7,14 +7,25 @@
   import Toasts from './ui/components/Toasts.svelte';
   import ImportErrorDialog from './ui/components/ImportErrorDialog.svelte';
   import WorkspaceIntro from './ui/components/WorkspaceIntro.svelte';
+  import SketchLayer from './ui/components/SketchLayer.svelte';
+  import SketchStatus from './ui/components/SketchStatus.svelte';
+  import DimensionEditor from './ui/components/DimensionEditor.svelte';
+  import Icon from './ui/components/Icon.svelte';
+  import fourBarExample from './examples/four-bar.csv?raw';
   import { newProject, projectFileName } from './core/model/project';
+  import { applicableConstraints } from './core/sketch/edit';
+  import type { ConstraintType } from './core/sketch/types';
+  import type { CanvasPointer, PointerResult } from './ui/lib/canvasEvents';
   import { downloadText, pickFile, readText } from './ui/lib/files';
   import { store, type ImportReport } from './ui/state/project.svelte';
   import { toasts } from './ui/state/toasts.svelte';
   import { ui, WORKSPACES } from './ui/state/ui.svelte';
+  import { RELATION_KEYS, sketchUi } from './ui/state/sketch.svelte';
+  import { tick } from 'svelte';
 
-  let tool = $state<'select' | 'pan'>('select');
   let viewport: Viewport;
+  const editable = $derived(ui.workspace === 'sketch');
+  const drawing = $derived(['point', 'line', 'dimension'].includes(sketchUi.tool));
   let failedImport = $state<ImportReport | null>(null);
   let dragDepth = $state(0);
 
@@ -44,14 +55,49 @@
     return () => clearTimeout(t);
   });
 
+  // Mouse clicks shouldn't leave toolbar buttons focused, or a later Enter/Space
+  // would press them again. Keyboard activation (detail === 0) keeps focus.
+  function blurClickedButton(e: MouseEvent) {
+    if (e.detail === 0) return;
+    const b = (e.target as Element | null)?.closest('button');
+    if (b && !b.closest('dialog')) b.blur();
+  }
+
+  // Drawing tools only exist in the Sketch workspace.
+  $effect(() => {
+    if (!editable && sketchUi.tool !== 'select' && sketchUi.tool !== 'pan') sketchUi.setTool('select');
+  });
+
   $effect(() => {
     document.title = `${store.project.meta.name || 'Untitled'} · Linkage Design`;
   });
 
   // ------------------------------------------------------------ file actions
 
+  async function fitSoon() {
+    await tick();
+    viewport?.fit();
+  }
+
+  function onCanvas(ev: CanvasPointer): PointerResult {
+    if (editable) return sketchUi.pointer(ev);
+    return ev.type === 'down' ? 'pan' : undefined;
+  }
+
+  function loadExample() {
+    store.importText('four-bar.csv', fourBarExample);
+    sketchUi.selection = [];
+    void fitSoon();
+    toasts.show('Loaded the four-bar example. Double-click a dimension to change it.', 'success', {
+      label: 'Undo',
+      run: () => store.undo(),
+    });
+  }
+
   function newFile() {
     store.replace(newProject());
+    sketchUi.selection = [];
+    sketchUi.editing = null;
     store.lastImport = null;
     toasts.show('Started a new project.', 'info', { label: 'Undo', run: () => store.undo() });
   }
@@ -73,6 +119,9 @@
       failedImport = report;
       return;
     }
+    sketchUi.selection = [];
+    sketchUi.editing = null;
+    void fitSoon();
     if (report.warnings.length) {
       toasts.show(`Opened ${file.name} with ${report.warnings.length} warning(s).`, 'warning', {
         label: 'View',
@@ -137,18 +186,50 @@
     } else if (mod && key === 'y') {
       e.preventDefault();
       store.redo();
+    } else if (mod && key === 'a' && editable) {
+      e.preventDefault();
+      sketchUi.selectAll();
+    } else if (e.key === 'Escape') {
+      if (sketchUi.escape()) e.preventDefault();
+    } else if ((e.key === 'Delete' || e.key === 'Backspace') && editable) {
+      e.preventDefault();
+      sketchUi.deleteSelection();
     } else if (!mod && !e.altKey) {
-      const ws = WORKSPACES.find((w) => w.key === e.key);
-      if (ws) ui.workspace = ws.id;
-      else if (key === 'f') viewport.fit();
-      else if (key === 'v') tool = 'select';
-      else if (key === 'h') tool = 'pan';
+      shortcut(e);
     }
+  }
+
+  function shortcut(e: KeyboardEvent) {
+    const key = e.key.toUpperCase();
+    const ws = WORKSPACES.find((w) => w.key === e.key);
+    if (ws) {
+      ui.workspace = ws.id;
+      return;
+    }
+    if (key === 'F') return viewport.fit();
+    if (!editable) return;
+    if (key === 'G') return sketchUi.toggleGridSnap();
+    // With geometry selected, relation keys apply constraints; otherwise they pick tools.
+    const geom = sketchUi.geometrySelection;
+    if (geom.length && geom.length === sketchUi.selection.length) {
+      const applicable = applicableConstraints(store.project.sketch, geom);
+      const t = (Object.keys(RELATION_KEYS) as ConstraintType[]).find(
+        (k) => RELATION_KEYS[k] === key && applicable.includes(k),
+      );
+      if (t) {
+        sketchUi.addConstraint(t, geom);
+        return;
+      }
+    }
+    if (key === 'P') sketchUi.setTool('point');
+    else if (key === 'L') sketchUi.setTool('line');
+    else if (key === 'D') sketchUi.setTool('dimension');
   }
 </script>
 
 <svelte:window
   onkeydown={onKeydown}
+  onclick={blurClickedButton}
   ondragenter={onDragEnter}
   ondragover={onDragOver}
   ondragleave={onDragLeave}
@@ -157,10 +238,62 @@
 
 <div class="app" class:inspector-open={ui.inspectorOpen}>
   <div class="top"><TopBar onNew={newFile} onOpen={open} onSave={save} /></div>
-  <div class="rail"><ToolRail bind:tool /></div>
+  <div class="rail"><ToolRail {editable} /></div>
   <main class="canvas">
-    <Viewport bind:this={viewport} {tool} unit={store.project.meta.length_unit}>
-      <WorkspaceIntro workspace={ui.workspace} />
+    <Viewport
+      bind:this={viewport}
+      unit={store.project.meta.length_unit}
+      panMode={sketchUi.tool === 'pan'}
+      cursor={editable && drawing ? 'crosshair' : 'default'}
+      onpointer={onCanvas}
+      extents={() => sketchUi.extents()}
+    >
+      {#snippet content({ view, size })}
+        <SketchLayer
+          {view}
+          {size}
+          sketch={store.project.sketch}
+          analysis={sketchUi.analysis}
+          angleUnit={store.project.meta.angle_unit}
+          angleScale={sketchUi.ctx.angleScale}
+          selection={editable ? sketchUi.selection : []}
+          hover={editable ? sketchUi.hover : null}
+          pending={sketchUi.pending}
+          draft={editable && sketchUi.tool === 'line' ? sketchUi.draft : null}
+          cursor={editable && sketchUi.tool === 'point' ? sketchUi.cursor : null}
+          editing={sketchUi.editing}
+        />
+      {/snippet}
+      {#snippet overlay({ view, size })}
+        {#if sketchUi.editing && editable}
+          {#key sketchUi.editing}
+            <DimensionEditor id={sketchUi.editing} {view} {size} />
+          {/key}
+        {/if}
+      {/snippet}
+      {#snippet badge()}
+        <SketchStatus />
+      {/snippet}
+      {#snippet hudRight()}
+        {#if editable}
+          <button
+            class="btn icon"
+            class:active={sketchUi.gridSnap}
+            aria-pressed={sketchUi.gridSnap}
+            title={`Snap to grid (G): ${sketchUi.gridSnap ? 'on' : 'off'}`}
+            aria-label="Snap to grid"
+            onclick={() => sketchUi.toggleGridSnap()}
+          >
+            <Icon name="magnet" />
+          </button>
+        {/if}
+      {/snippet}
+      <WorkspaceIntro
+        workspace={ui.workspace}
+        sketchEmpty={store.project.sketch.points.length === 0}
+        hint={sketchUi.hint}
+        onexample={loadExample}
+      />
     </Viewport>
   </main>
   <div class="inspector"><Inspector /></div>

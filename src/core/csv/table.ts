@@ -13,6 +13,8 @@ import { formatBool, formatNumber, parseBool, parseNumber } from './values';
 export type ColumnSpec =
   | { type: 'string'; required?: boolean; default?: string }
   | { type: 'id'; required?: boolean }
+  /** A reference to an ID elsewhere: same format as an ID, but need not be unique. */
+  | { type: 'ref'; required?: boolean }
   | { type: 'number'; required?: boolean; default?: number; min?: number; max?: number; integer?: boolean }
   | { type: 'bool'; required?: boolean; default?: boolean }
   | { type: 'enum'; values: readonly string[]; required?: boolean; default?: string }
@@ -73,6 +75,7 @@ function readCell(
     case 'string':
       return text;
     case 'id':
+    case 'ref':
       if (!ID_RE.test(text)) {
         report(`"${text}" is not a valid ID (use letters, digits, "_", "-", "."; start with a letter)`);
         return undefined;

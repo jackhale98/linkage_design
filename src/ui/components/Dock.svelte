@@ -1,7 +1,10 @@
 <script lang="ts">
   import Icon, { type IconName } from './Icon.svelte';
   import { formatDiagnostic } from '../../core/csv/diagnostics';
+  import SketchTables from './SketchTables.svelte';
+  import { CONSTRAINT_DEFS } from '../../core/sketch/constraints';
   import { store } from '../state/project.svelte';
+  import { sketchUi } from '../state/sketch.svelte';
   import { ui, type DockTab } from '../state/ui.svelte';
 
   const TABS: { id: DockTab; label: string; icon: IconName }[] = [
@@ -11,15 +14,26 @@
     { id: 'messages', label: 'Messages', icon: 'messages' },
   ];
 
-  const EMPTY: Record<Exclude<DockTab, 'messages'>, string> = {
+  const EMPTY: Record<'plots' | 'results', string> = {
     plots:
       'Plots of position, velocity, acceleration and forces against the driver input will appear here once a mechanism moves.',
-    tables: 'Editable tables of points, constraints, bodies, joints and loads will appear here.',
     results: 'Summaries such as range of motion, Grashof type, peak forces and cam checks will appear here.',
   };
 
   const report = $derived(store.lastImport);
-  const messageCount = $derived(report ? report.errors.length + report.warnings.length : 0);
+
+  /** Constraints the solver flags: conflicting (unsatisfied) or duplicating others (redundant). */
+  const issues = $derived(
+    store.project.sketch.constraints
+      .filter((c) => sketchUi.analysis.unsatisfied.has(c.id) || sketchUi.analysis.redundant.has(c.id))
+      .map((c) => ({
+        id: c.id,
+        text: sketchUi.analysis.unsatisfied.has(c.id)
+          ? `${c.id} (${CONSTRAINT_DEFS[c.type].label.toLowerCase()} on ${c.refs.join(', ')}) conflicts with other constraints and isn't satisfied`
+          : `${c.id} (${CONSTRAINT_DEFS[c.type].label.toLowerCase()} on ${c.refs.join(', ')}) duplicates other constraints; delete it or make it a reference`,
+      })),
+  );
+  const messageCount = $derived((report ? report.errors.length + report.warnings.length : 0) + issues.length);
 
   const MIN_H = 120;
   let dragStart: { y: number; h: number } | null = null;
@@ -100,12 +114,25 @@
 
   {#if ui.dockOpen}
     <div class="content" role="tabpanel">
-      {#if ui.dockTab === 'messages'}
-        {#if !report}
+      {#if ui.dockTab === 'tables'}
+        <SketchTables />
+      {:else if ui.dockTab === 'messages'}
+        {#if issues.length}
+          <p class="summary"><Icon name="alert" size={16} /> The sketch is over-defined.</p>
+          <ul class="messages">
+            {#each issues as m (m.id)}
+              <li class="error">
+                <Icon name="alert" size={15} />
+                <button class="link" onclick={() => (sketchUi.selection = [m.id])}>{m.text}</button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        {#if !report && !issues.length}
           <p class="empty">
             No messages. Warnings and errors from opening files and from the solver appear here.
           </p>
-        {:else}
+        {:else if report}
           <p class="summary">
             {#if report.ok}
               <Icon name="check" size={16} /> Opened <strong>{report.fileName}</strong>
@@ -125,7 +152,7 @@
           </ul>
         {/if}
       {:else}
-        <p class="empty">{EMPTY[ui.dockTab]}</p>
+        <p class="empty">{EMPTY[ui.dockTab as 'plots' | 'results']}</p>
       {/if}
     </div>
   {/if}
@@ -260,6 +287,20 @@
 
   .messages li.warning :global(svg) {
     color: var(--warning);
+  }
+
+  .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .link:hover {
+    text-decoration: underline;
   }
 
   .messages li:nth-child(odd) {

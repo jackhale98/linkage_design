@@ -38,12 +38,12 @@ class ProjectStore {
     this.project = JSON.parse(json) as Project;
   }
 
-  #record(coalesceKey?: string): void {
+  #record(coalesceKey?: string, before = this.#snapshot()): void {
     const now = Date.now();
     const coalesce =
       coalesceKey !== undefined && coalesceKey === this.#lastKey && now - this.#lastTime < COALESCE_MS;
     if (!coalesce) {
-      this.#past.push(this.#snapshot());
+      this.#past.push(before);
       if (this.#past.length > HISTORY_LIMIT) this.#past.shift();
     }
     this.#future = [];
@@ -58,12 +58,47 @@ class ProjectStore {
   }
 
   /**
-   * Apply an edit. Edits sharing a `coalesceKey` within a second (e.g. typing
-   * in one field) become a single undo step.
+   * Apply an edit as one undo step. Edits sharing a `coalesceKey` within a
+   * second (e.g. typing in one field) become a single undo step.
    */
   update(mutate: (p: Project) => void, coalesceKey?: string): void {
-    this.#record(coalesceKey);
+    const before = this.#snapshot();
     mutate(this.project);
+    this.#record(coalesceKey, before);
+    this.project.meta.modified = new Date().toISOString();
+  }
+
+  /**
+   * Apply an edit that may be refused. `mutate` returns true if it changed
+   * the project, or false if it refused (leaving the project unchanged), in
+   * which case no undo step is recorded.
+   */
+  tryUpdate(mutate: (p: Project) => boolean): boolean {
+    const before = this.#snapshot();
+    if (!mutate(this.project)) return false;
+    this.#record(undefined, before);
+    this.project.meta.modified = new Date().toISOString();
+    return true;
+  }
+
+  #gesture: string | null = null;
+
+  /** Start a continuous edit (e.g. a drag) that becomes one undo step. */
+  beginGesture(): void {
+    this.#gesture ??= this.#snapshot();
+  }
+
+  /** Change the project during a gesture without recording history. */
+  patch(mutate: (p: Project) => void): void {
+    mutate(this.project);
+  }
+
+  /** Finish a gesture, recording one undo step if anything changed. */
+  endGesture(): void {
+    const before = this.#gesture;
+    this.#gesture = null;
+    if (before === null || before === this.#snapshot()) return;
+    this.#record(undefined, before);
     this.project.meta.modified = new Date().toISOString();
   }
 

@@ -1,6 +1,6 @@
 // Project model and its sectioned-CSV file format.
 //
-// Phase 0 covers project metadata. Later phases add sketch, mechanism,
+// Covers project metadata and the sketch. Later phases add mechanism,
 // forces and cam sections; sections this version doesn't know are kept
 // verbatim and written back out, so newer files survive a round trip.
 
@@ -13,6 +13,9 @@ import {
   type SectionedDoc,
 } from '../csv/sectioned';
 import { readKeyValue, writeKeyValue, type Row, type Extras } from '../csv/table';
+import { readSketch, writeSketch, SKETCH_SECTIONS } from '../sketch/io';
+import { CONSTRAINT_DEFS } from '../sketch/constraints';
+import { emptySketch, type Sketch } from '../sketch/types';
 
 export const FILE_APP = 'LinkageDesign';
 export const FILE_VERSION = 1;
@@ -39,12 +42,13 @@ export type ProjectMeta = Row<typeof PROJECT_SPEC> & Extras;
 
 export interface Project {
   meta: ProjectMeta;
+  sketch: Sketch;
   /** Sections not understood by this version, kept for round trips. */
   preserved: RawSection[];
 }
 
 /** Sections this version reads. Everything else is preserved. */
-const KNOWN_SECTIONS = new Set(['project']);
+const KNOWN_SECTIONS = new Set<string>(['project', ...SKETCH_SECTIONS]);
 
 export function newProject(now = new Date()): Project {
   const stamp = now.toISOString();
@@ -59,14 +63,44 @@ export function newProject(now = new Date()): Project {
       modified: stamp,
       extras: {},
     },
+    sketch: emptySketch(),
     preserved: [],
   };
+}
+
+const LENGTH_IN_METERS: Record<LengthUnit, number> = { mm: 0.001, m: 1, in: 0.0254 };
+const ANGLE_IN_RADIANS: Record<AngleUnit, number> = { deg: Math.PI / 180, rad: 1 };
+
+/** Factor converting stored angle values to radians. */
+export function angleScale(p: Project): number {
+  return ANGLE_IN_RADIANS[p.meta.angle_unit];
+}
+
+/**
+ * Change the project's units, converting every stored value so the
+ * physical geometry is unchanged.
+ */
+export function convertUnits(p: Project, length: LengthUnit, angle: AngleUnit): void {
+  const kl = LENGTH_IN_METERS[p.meta.length_unit] / LENGTH_IN_METERS[length];
+  const ka = ANGLE_IN_RADIANS[p.meta.angle_unit] / ANGLE_IN_RADIANS[angle];
+  for (const pt of p.sketch.points) {
+    pt.x *= kl;
+    pt.y *= kl;
+  }
+  for (const c of p.sketch.constraints) {
+    const kind = CONSTRAINT_DEFS[c.type].value;
+    if (c.value !== undefined) c.value *= kind === 'angle' ? ka : kl;
+    if (c.labelDx !== undefined) c.labelDx *= kl;
+    if (c.labelDy !== undefined) c.labelDy *= kl;
+  }
+  p.meta.length_unit = length;
+  p.meta.angle_unit = angle;
 }
 
 // ---------------------------------------------------------------- writing
 
 export function serializeProject(p: Project): string {
-  const sections: SectionOut[] = [writeKeyValue('project', PROJECT_SPEC, p.meta)];
+  const sections: SectionOut[] = [writeKeyValue('project', PROJECT_SPEC, p.meta), ...writeSketch(p.sketch)];
   for (const s of p.preserved) {
     sections.push({ name: s.name, header: s.header, rows: s.records.map((r) => r.cells) });
   }
@@ -146,8 +180,8 @@ export function parseProject(text: string): ImportResult {
 
   const byName = new Map(doc.sections.map((s) => [s.name, s]));
   const projectSection = byName.get('project');
-  if (!projectSection) diag.warn('No [project] section; using default name and units');
   const meta = readKeyValue(projectSection, PROJECT_SPEC, doc.delimiter, diag);
+  const sketch = readSketch(byName, doc.delimiter, diag);
 
   const preserved = doc.sections.filter((s) => !KNOWN_SECTIONS.has(s.name));
   for (const s of preserved) {
@@ -158,7 +192,7 @@ export function parseProject(text: string): ImportResult {
   }
 
   if (diag.hasErrors) return { ok: false, errors: diag.errors, warnings: diag.warnings };
-  return { ok: true, project: { meta, preserved }, warnings: diag.warnings };
+  return { ok: true, project: { meta, sketch, preserved }, warnings: diag.warnings };
 }
 
 /** File name for exporting a project, derived from its name. */

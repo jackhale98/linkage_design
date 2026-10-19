@@ -1,13 +1,14 @@
 <script lang="ts">
   import type { Workspace } from '../state/ui.svelte';
 
-  let { workspace }: { workspace: Workspace } = $props();
+  let {
+    workspace,
+    sketchEmpty,
+    hint,
+    onexample,
+  }: { workspace: Workspace; sketchEmpty: boolean; hint: string; onexample: () => void } = $props();
 
-  const INTRO: Record<Workspace, { title: string; text: string }> = {
-    sketch: {
-      title: 'Sketch',
-      text: 'Draw points and lines, then add constraints and dimensions to define the mechanism geometry.',
-    },
+  const INTRO: Record<Exclude<Workspace, 'sketch'>, { title: string; text: string }> = {
     mechanism: {
       title: 'Mechanism',
       text: 'Group sketch geometry into rigid links, mark the ground, set joint types and pick the driver.',
@@ -25,20 +26,35 @@
       text: 'Define a motion program and follower to generate the cam profile, with SVAJ, pressure angle, curvature and undercut checks.',
     },
   };
-
-  const intro = $derived(INTRO[workspace]);
 </script>
 
-<div class="card">
-  <div class="head">
-    <h2>{intro.title}</h2>
-    <span class="tag">In development</span>
+{#if workspace === 'sketch'}
+  {#if sketchEmpty}
+    <div class="card">
+      <h2>Start a sketch</h2>
+      <p>Draw the mechanism’s geometry, then add constraints and dimensions until it’s fully defined.</p>
+      <ul class="keys">
+        <li><kbd>L</kbd> Line</li>
+        <li><kbd>P</kbd> Point</li>
+        <li><kbd>D</kbd> Dimension</li>
+        <li><kbd>Esc</kbd> Select</li>
+      </ul>
+      <button class="btn outline" onclick={onexample}>Load the four-bar example</button>
+    </div>
+  {:else if hint}
+    <div class="hint" role="status">{hint}</div>
+  {/if}
+{:else}
+  {@const intro = INTRO[workspace]}
+  <div class="card">
+    <div class="head">
+      <h2>{intro.title}</h2>
+      <span class="tag">In development</span>
+    </div>
+    <p>{intro.text}</p>
+    <p class="muted small">The sketch is shown read-only here. Edit it in the Sketch workspace.</p>
   </div>
-  <p>{intro.text}</p>
-  <p class="muted small">
-    Available now: pan and zoom the canvas, set project units and notes, and save or open project CSV files.
-  </p>
-</div>
+{/if}
 
 <style>
   .card {
@@ -76,5 +92,28 @@
 
   .small {
     font-size: var(--text-sm);
+  }
+
+  .keys {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin: var(--space-3) 0;
+    padding: 0;
+    list-style: none;
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .hint {
+    width: fit-content;
+    max-width: 100%;
+    margin: 0 auto;
+    padding: 6px 14px;
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--text) 82%, transparent);
+    color: var(--canvas-bg);
+    font-size: var(--text-sm);
+    text-align: center;
   }
 </style>
