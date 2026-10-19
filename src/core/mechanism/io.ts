@@ -5,7 +5,15 @@ import type { Delimiter } from '../csv/rfc4180';
 import type { RawSection, SectionOut } from '../csv/sectioned';
 import { readKeyValue, readTable, writeKeyValue, writeTable } from '../csv/table';
 import type { Sketch } from '../sketch/types';
-import { BODY_COLORS, DRIVER_TYPES, GROUND, JOINT_TYPES, emptyMechanism, type MechanismData } from './types';
+import {
+  BODY_COLORS,
+  DRIVER_TYPES,
+  GROUND,
+  JOINT_TYPES,
+  PAIR_TYPES,
+  emptyMechanism,
+  type MechanismData,
+} from './types';
 
 const BODIES_SPEC = {
   id: { type: 'id', required: true },
@@ -28,6 +36,21 @@ const JOINTS_SPEC = {
   body_b: { type: 'ref', required: true },
 } as const;
 
+const PAIRS_SPEC = {
+  id: { type: 'id', required: true },
+  type: { type: 'enum', values: PAIR_TYPES, required: true },
+  body_a: { type: 'ref', required: true },
+  point_a: { type: 'ref', required: true },
+  body_b: { type: 'ref', required: true },
+  point_b: { type: 'ref' },
+  line: { type: 'ref' },
+  cam: { type: 'ref' },
+  angle: { type: 'number' },
+  teeth_a: { type: 'number', default: 20, min: 3, integer: true },
+  teeth_b: { type: 'number', default: 20, min: 3, integer: true },
+  pressure: { type: 'number', default: 20, min: 0, max: 45 },
+} as const;
+
 const DRIVER_SPEC = {
   type: { type: 'enum', values: DRIVER_TYPES, default: 'none' },
   line: { type: 'string' },
@@ -45,7 +68,7 @@ const MOTION_SPEC = {
   trace: { type: 'string' },
 } as const;
 
-export const MECHANISM_SECTIONS = ['bodies', 'joints', 'driver', 'motion'] as const;
+export const MECHANISM_SECTIONS = ['bodies', 'joints', 'pairs', 'driver', 'motion'] as const;
 
 const clean = (v: number | undefined) => (v !== undefined && Math.abs(v) < 1e-9 ? 0 : v);
 
@@ -70,6 +93,25 @@ export function writeMechanism(m: MechanismData): SectionOut[] {
       m.joints.map((j) => ({ ...j, body_a: j.bodyA, body_b: j.bodyB })),
       'Joints, derived from the sketch. type may be changed between pin_in_slot and slider.',
     ),
+    ...(m.pairs.length
+      ? [
+          writeTable(
+            'pairs',
+            PAIRS_SPEC,
+            m.pairs.map((x) => ({
+              ...x,
+              body_a: x.bodyA,
+              point_a: x.pointA,
+              body_b: x.bodyB,
+              point_b: x.pointB,
+              angle: x.angle,
+              teeth_a: x.teethA,
+              teeth_b: x.teethB,
+            })),
+            'Cam and gear joints. cam: cam (Cam workspace ID) on body_a centred at point_a, roller centre point_b on body_b; angle = mount angle of the cam at the drawn pose (degrees, blank = fit to the roller). gear: gears on body_a and body_b centred at point_a and point_b (external mesh, pressure angle in degrees). rack: pinion on body_a centred at point_a, rack body_b with pitch line `line`.',
+          ),
+        ]
+      : []),
     writeKeyValue(
       'driver',
       DRIVER_SPEC,
@@ -149,6 +191,42 @@ export function readMechanism(
         line: r.line ?? '',
         bodyA: r.body_a,
         bodyB: r.body_b,
+        extras: r.extras,
+      });
+    }
+  }
+
+  const ps = sections.get('pairs');
+  if (ps) {
+    for (const r of readTable(ps, PAIRS_SPEC, delimiter, diag)) {
+      const where = { line: r.srcLine, section: 'pairs' };
+      for (const [col, v] of [
+        ['body_a', r.body_a],
+        ['body_b', r.body_b],
+      ] as const)
+        if (v && !bodyIds.has(v)) diag.error(`Body "${v}" doesn't exist`, { ...where, column: col });
+      for (const [col, v] of [
+        ['point_a', r.point_a],
+        ['point_b', r.point_b],
+      ] as const)
+        if (v && !pointIds.has(v)) diag.error(`Point "${v}" doesn't exist`, { ...where, column: col });
+      if (r.type === 'cam' && !r.cam) diag.error('A cam joint needs a cam', { ...where, column: 'cam' });
+      if (r.type === 'rack' && !r.line)
+        diag.error('A rack needs its pitch line', { ...where, column: 'line' });
+      if (r.type !== 'rack' && !r.point_b) diag.error('point_b is required', { ...where, column: 'point_b' });
+      m.pairs.push({
+        id: r.id ?? '',
+        type: r.type ?? 'gear',
+        bodyA: r.body_a ?? '',
+        pointA: r.point_a ?? '',
+        bodyB: r.body_b ?? '',
+        pointB: r.point_b ?? '',
+        line: r.line ?? '',
+        cam: r.cam ?? '',
+        angle: r.angle,
+        teethA: r.teeth_a,
+        teethB: r.teeth_b,
+        pressure: r.pressure,
         extras: r.extras,
       });
     }

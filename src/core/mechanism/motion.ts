@@ -37,7 +37,7 @@ export function computeMotion(project: Project): MotionResult {
   // Work on a synced copy so stale body/joint data never breaks the analysis.
   const mech = structuredClone(project.mechanism);
   syncMechanism(project.sketch, mech);
-  const model = buildModel(project.sketch, mech);
+  const model = buildModel(project.sketch, mech, project.cams);
   const sys = new KinematicSystem(model);
   const issues = [...model.issues];
   const mobility = model.bodies.length ? sys.mobility() : 0;

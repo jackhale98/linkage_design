@@ -51,6 +51,61 @@ type Geometry =
       pivot?: Vec;
     };
 
+const J = ([x, y]: Vec): Vec => [-y, x]; // turn 90 degrees
+
+type PointGeometry = Extract<Geometry, { kind: 'point' }>;
+
+/**
+ * The pitch curve (roller-centre path) in the cam frame at cam angle theta,
+ * with its first and second derivatives, exact (chain rule through the cam
+ * rotation R(-sigma theta) and the motion program).
+ */
+function pointCurve(
+  g: PointGeometry,
+  program: Program,
+  sigma: number,
+  theta: number,
+): { P: Vec; d1: Vec; d2: Vec } {
+  const m = svaj(program, theta);
+  const R = (v: Vec) => rot(-sigma * theta, v);
+  const RC = R(g.centre(m.s));
+  const RCs = R(g.dcentre(m.s));
+  const RCss = R(g.d2centre(m.s));
+  const jc = J(RC);
+  const js = J(RCs);
+  return {
+    P: RC,
+    d1: [-sigma * jc[0] + RCs[0] * m.v, -sigma * jc[1] + RCs[1] * m.v],
+    d2: [
+      -RC[0] - 2 * sigma * js[0] * m.v + RCss[0] * m.v * m.v + RCs[0] * m.a,
+      -RC[1] - 2 * sigma * js[1] * m.v + RCss[1] * m.v * m.v + RCs[1] * m.a,
+    ],
+  };
+}
+
+/** A cam's pitch curve as an exact function, for mounting the cam in a linkage. */
+export interface PitchCurve {
+  /** Point and derivatives at curve parameter theta (the cam angle of the design, radians). */
+  at(theta: number): { P: Vec; d1: Vec; d2: Vec };
+  /** The roller that runs on it. */
+  rollerRadius: number;
+}
+
+/** The pitch curve of a roller or knife-edge cam design; flat-faced designs have none. */
+export function camPitchCurve(cam: CamData): PitchCurve | CamGeometryError {
+  const program = buildProgram(cam);
+  const bad = program.issues.find((i) => i.severity === 'error');
+  if (bad) return { message: `${cam.id}: ${bad.message}` };
+  const g = geometry(cam);
+  if ('message' in g) return { message: `${cam.id}: ${g.message}` };
+  if (g.kind !== 'point')
+    return {
+      message: `${cam.id} is designed for a flat-faced follower; mount a roller or knife-edge design`,
+    };
+  const sigma = cam.rotation === 'ccw' ? 1 : -1;
+  return { at: (theta) => pointCurve(g, program, sigma, theta), rollerRadius: g.radius };
+}
+
 export interface CamGeometryError {
   message: string;
 }
@@ -207,34 +262,21 @@ export function analyzeCam(cam: CamData, units: ForceUnits): CamAnalysis {
   const step = Math.max(0.01, cam.step);
   const n = Math.max(8, Math.round(360 / step));
 
-  const J = ([x, y]: Vec): Vec => [-y, x]; // turn 90 degrees
-
   const samples: CamSample[] = [];
   for (let k = 0; k < n; k++) {
     const angle = (k * 360) / n;
     const theta = angle * DEG;
     const m = svaj(program, theta);
-    const R = (v: Vec) => rot(-sigma * theta, v);
     // Cam-frame curve (pitch curve, or the cam surface for flat faces), its
     // derivative, and its radius of curvature (+ convex), all exact.
     let c0: Vec;
     let d1: Vec;
     let rho: number;
     if (g.kind === 'point') {
-      const C = g.centre(m.s);
-      const Cs = g.dcentre(m.s);
-      const Css = g.d2centre(m.s);
-      const RC = R(C);
-      const RCs = R(Cs);
-      const RCss = R(Css);
-      c0 = RC;
-      const jc = J(RC);
-      d1 = [-sigma * jc[0] + RCs[0] * m.v, -sigma * jc[1] + RCs[1] * m.v];
-      const js = J(RCs);
-      const d2: Vec = [
-        -RC[0] - 2 * sigma * js[0] * m.v + RCss[0] * m.v * m.v + RCs[0] * m.a,
-        -RC[1] - 2 * sigma * js[1] * m.v + RCss[1] * m.v * m.v + RCs[1] * m.a,
-      ];
+      const pc = pointCurve(g, program, sigma, theta);
+      c0 = pc.P;
+      d1 = pc.d1;
+      const d2 = pc.d2;
       const turn = Math.sign(cross(c0, d1)) || 1;
       const k2 = cross(d1, d2);
       rho = k2 === 0 ? Infinity : (turn * Math.hypot(d1[0], d1[1]) ** 3) / k2;

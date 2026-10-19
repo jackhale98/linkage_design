@@ -20,7 +20,7 @@
 
 import { solveDamped, solveSquare, RowSpace } from '../math/linalg';
 import type { MotionResult } from '../mechanism/motion';
-import type { CycleFrame } from '../mechanism/analysis';
+import { inputValue, type CycleFrame } from '../mechanism/analysis';
 import type { Attach } from '../mechanism/kinematics';
 import { GROUND, type Body } from '../mechanism/types';
 import { inertiaFactor, weightPerMass, type ForceUnits, type ForcesData } from './types';
@@ -50,6 +50,8 @@ export interface ForceFrame {
   springs: Map<string, number>;
   /** Applied forces and torques as they act at this position (resisting loads flip with the motion). */
   applied: Map<string, { at?: Vec; F?: Vec; T?: number }>;
+  /** Cam and gear joints, by ID. */
+  pairs: Map<string, PairForce>;
   /** Torque (or force along the slot) the output delivers to its load; NaN when solving for the input. */
   output: number;
   /** The input and output as forces at the chosen points (at right angles to the radius); NaN if unset. */
@@ -62,6 +64,19 @@ export interface ForceFrame {
 /** How the output is held when solving for it. */
 type Output =
   { kind: 'rotary'; body: number; point: Vec } | { kind: 'linear'; body: number; attach: Attach; u: Vec };
+
+/**
+ * Force in a cam or gear joint. Gears and racks: `force` is the tangential
+ * tooth force, `normal` the tooth force along the line of action and
+ * `separating` the part pushing the gears apart. Cams: `force` is the contact
+ * force, + pressing (a negative value means the roller would lift off).
+ */
+export interface PairForce {
+  kind: 'cam' | 'gear' | 'rack';
+  force: number;
+  normal: number;
+  separating: number;
+}
 
 export interface ForceResult {
   frames: ForceFrame[];
@@ -246,7 +261,28 @@ export function solveForces(
     fr.output = clean(fr.output, output?.kind === 'rotary' ? tol * sys.scale : tol);
     fr.inputForce = fr.driver / inputArm;
     fr.outputForce = fr.output / outputArm;
+    for (const pf of fr.pairs.values()) {
+      pf.force = clean(pf.force, tol);
+      pf.normal = clean(pf.normal, tol);
+      pf.separating = clean(pf.separating, tol);
+    }
   });
+  // A cam only pushes: report where the roller would lift off.
+  for (const pr of sys.model.pairs) {
+    if (pr.type !== 'cam') continue;
+    const at: number[] = [];
+    out.forEach((fr, k) => {
+      const prev = out[k - 1]?.pairs.get(pr.id)?.force ?? 0;
+      if ((fr.pairs.get(pr.id)?.force ?? 0) < 0 && !(prev < 0)) at.push(inputValue(data, frames[k]!));
+    });
+    if (at.length) {
+      const unit =
+        sys.driver!.type === 'rotary' ? (data.units.angle === 'deg' ? '°' : ' rad') : ` ${data.units.length}`;
+      issues.push(
+        `${pr.id}: the roller would lift off the cam from ${at.map((v) => `${Number(v.toFixed(1))}${unit}`).join(', ')} (the contact force goes below zero). A spring, a load holding it on, or a grooved cam is needed.`,
+      );
+    }
+  }
   return { frames: out, indeterminate, issues };
 
   function frameForces(f: CycleFrame): ForceFrame {
@@ -266,6 +302,14 @@ export function solveForces(
     };
     const Q = new Array<number>(n).fill(0);
     const refPos = (i: number): Vec => [f.q[3 * i]!, f.q[3 * i + 1]!];
+    /** Add a force F at point `at` on body i to a generalized force vector. */
+    const addForceTo = (Qv: number[], i: number, at: Vec, F: Vec) => {
+      if (i < 0) return;
+      const r = refPos(i);
+      Qv[3 * i]! += F[0];
+      Qv[3 * i + 1]! += F[1];
+      Qv[3 * i + 2]! += (at[0] - r[0]) * F[1] - (at[1] - r[1]) * F[0];
+    };
     const addForce = (body: string, at: Vec, F: Vec) => {
       const i = sys.bodyIndex.get(body);
       if (i === undefined) return; // ground or unknown: reacted by the frame
@@ -376,7 +420,8 @@ export function solveForces(
     // Phi_q^T lambda = Q: a direct solve when square (the usual case); least
     // squares (minimum-norm) when constraints are redundant.
     // Solving for the output, the driver row is replaced by one holding the output.
-    const J = sys.jacobian(f.q);
+    // Gear and rack rows act at their pitch points (see KinematicSystem.forceJacobian).
+    const J = sys.forceJacobian(f.q);
     const active = J.map((_, k) => k).filter((k) => !(solveOutput && k === driverRow));
     const M = active.map((k) => J[k]!);
     let outRow: number[] | null = null;
@@ -394,10 +439,43 @@ export function solveForces(
       M.push(outRow);
     }
     const MT = Array.from({ length: n }, (_, c) => M.map((row) => row[c]!));
-    const sol = (!indeterminate && M.length === n && solveSquare(MT, Q)) || solveDamped(MT, Q, 1e-12);
-    const lambda = new Array<number>(J.length).fill(0);
-    active.forEach((k, r) => (lambda[k] = sol[r]!));
-    const lamOut = outRow ? sol[active.length]! : 0;
+    const solveFor = (Qv: number[]) => {
+      const sol = (!indeterminate && M.length === n && solveSquare(MT, Qv)) || solveDamped(MT, Qv, 1e-12);
+      const lam = new Array<number>(J.length).fill(0);
+      active.forEach((k, r) => (lam[k] = sol[r]!));
+      return { lam, out: outRow ? sol[active.length]! : 0 };
+    };
+    let { lam: lambda, out: lamOut } = solveFor(Q);
+
+    // Cam and gear joints. A gear row's multiplier is the tangential tooth
+    // force; the teeth also push the gears apart (F_t tan(pressure angle)),
+    // which does no work but loads the pivots: add it and solve again.
+    const pairs = new Map<string, PairForce>();
+    const Q2 = Q.slice();
+    let separating = false;
+    rows.forEach((row, k) => {
+      if (!row.pair) return;
+      const c = sys.rowConstraint(row.index);
+      const lam = lambda[k]!;
+      if (c.kind === 'cam') {
+        // The row is the contact distance; its force on the roller is -lam along the outward normal.
+        pairs.set(row.pair, { kind: 'cam', force: -lam, normal: -lam, separating: 0 });
+        return;
+      }
+      if (c.kind !== 'gear' && c.kind !== 'rack') return;
+      const spec = sys.model.pairs.find((x) => x.id === row.pair);
+      const tan = spec && spec.type !== 'cam' ? Math.tan(spec.pressure) : 0;
+      const cos = spec && spec.type !== 'cam' ? Math.cos(spec.pressure) : 1;
+      const ft = Math.abs(lam);
+      pairs.set(row.pair, { kind: c.kind, force: ft, normal: ft / cos, separating: ft * tan });
+      if (ft * tan > 0) {
+        const { P, u } = sys.pitchPoint(f.q, c);
+        addForceTo(Q2, c.i, P, [-ft * tan * u[0], -ft * tan * u[1]]);
+        addForceTo(Q2, c.j, P, [ft * tan * u[0], ft * tan * u[1]]);
+        separating = true;
+      }
+    });
+    if (separating) ({ lam: lambda, out: lamOut } = solveFor(Q2));
 
     // Constraint force on each body from each joint: -(rows of Phi_q)^T lambda.
     const joints = new Map<string, JointForce>();
@@ -470,6 +548,7 @@ export function solveForces(
       outputForce: NaN,
       springs,
       applied,
+      pairs,
       balance,
     };
   }

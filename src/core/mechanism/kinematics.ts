@@ -18,6 +18,8 @@
 import { normInf, nullSpaceBasis, solveMinNorm, solveSquare, RowSpace } from '../math/linalg';
 import { GROUND } from './types';
 import type { MechanismModel, ResolvedDriver } from './model';
+import type { PitchCurve } from '../cam/analysis';
+import { closest } from '../cam/curve';
 
 type Vec = [number, number];
 
@@ -33,7 +35,43 @@ type Constraint =
   | { kind: 'slot'; a: Attach; b: Attach; p: Attach; len: number; joint: string }
   | { kind: 'lock'; i: number; j: number; joint: string }
   | { kind: 'rotary'; i: number; j: number; t0: number }
-  | { kind: 'linear'; p: Attach; q: Attach };
+  | { kind: 'linear'; p: Attach; q: Attach }
+  /** Gear mesh: ra (phi_i - phi_k) + rb (phi_j - phi_k) = 0, centres oa, ob on the carrier k. */
+  | {
+      kind: 'gear';
+      i: number;
+      j: number;
+      k: number;
+      ra: number;
+      rb: number;
+      oa: Attach;
+      ob: Attach;
+      pair: string;
+    }
+  /** Rack and pinion (ground carrier): e . (rack point - its drawn place) = r phi_i. */
+  | {
+      kind: 'rack';
+      i: number;
+      j: number;
+      r: number;
+      e: Vec;
+      n: Vec;
+      oa: Attach;
+      rp: Attach;
+      rp0: Vec;
+      pair: string;
+    }
+  /** Cam: the roller centre c stays on the pitch curve, in the cam frame (body i, centre o, mount alpha). */
+  | {
+      kind: 'cam';
+      i: number;
+      o: Attach;
+      c: Attach;
+      alpha: number;
+      curve: PitchCurve;
+      hint?: number;
+      pair: string;
+    };
 
 const rot = (phi: number, s: Vec): Vec => {
   const c = Math.cos(phi);
@@ -84,6 +122,43 @@ export class KinematicSystem {
       if (j.type === 'slider')
         this.constraints.push({ kind: 'lock', i: this.idx(j.a), j: this.idx(j.b), joint: j.id });
     }
+    for (const pr of model.pairs) {
+      if (pr.type === 'gear')
+        this.constraints.push({
+          kind: 'gear',
+          i: this.idx(pr.a),
+          j: this.idx(pr.b),
+          k: this.idx(pr.carrier),
+          ra: pr.ra,
+          rb: pr.rb,
+          oa: this.attach(pr.pa, pr.a),
+          ob: this.attach(pr.pb, pr.b),
+          pair: pr.id,
+        });
+      else if (pr.type === 'rack')
+        this.constraints.push({
+          kind: 'rack',
+          i: this.idx(pr.a),
+          j: this.idx(pr.b),
+          r: pr.r,
+          e: pr.e,
+          n: pr.n,
+          oa: this.attach(pr.pa, pr.a),
+          rp: this.attachPosition(pr.pitch, pr.b),
+          rp0: pr.pitch,
+          pair: pr.id,
+        });
+      else
+        this.constraints.push({
+          kind: 'cam',
+          i: this.idx(pr.a),
+          o: this.attach(pr.pa, pr.a),
+          c: this.attach(pr.pb, pr.b),
+          alpha: pr.alpha,
+          curve: pr.curve,
+          pair: pr.id,
+        });
+    }
     const d = model.driver;
     if (d?.type === 'rotary')
       this.constraints.push({ kind: 'rotary', i: this.idx(d.body), j: this.idx(d.refBody), t0: d.t0 });
@@ -124,13 +199,33 @@ export class KinematicSystem {
   }
 
   /** Rows of the constraint equations, each tagged with the constraint that produced it. */
-  rowOwners(): { kind: Constraint['kind']; joint?: string; index: number }[] {
-    const out: { kind: Constraint['kind']; joint?: string; index: number }[] = [];
+  rowOwners(): { kind: Constraint['kind']; joint?: string; pair?: string; index: number }[] {
+    const out: { kind: Constraint['kind']; joint?: string; pair?: string; index: number }[] = [];
     this.constraints.forEach((c, index) => {
       const joint = 'joint' in c ? c.joint : undefined;
-      for (let r = 0; r < (c.kind === 'revolute' ? 2 : 1); r++) out.push({ kind: c.kind, joint, index });
+      const pair = 'pair' in c ? c.pair : undefined;
+      for (let r = 0; r < (c.kind === 'revolute' ? 2 : 1); r++)
+        out.push({ kind: c.kind, joint, pair, index });
     });
     return out;
+  }
+
+  /** Attach the body point that is at world position P at pose q. */
+  attachAt(q: number[], body: number, P: Vec): Attach {
+    if (body < 0) return { body: -1, s: P };
+    const k = 3 * body;
+    return { body, s: rot(-q[k + 2]!, [P[0] - q[k]!, P[1] - q[k + 1]!]) };
+  }
+
+  /** Cam joint: signed distance of the roller centre from the pitch curve, and where it touches. */
+  camContact(q: number[], c: Extract<Constraint, { kind: 'cam' }>) {
+    const beta = this.phi(q, c.i) + c.alpha;
+    const O = this.pos(q, c.o);
+    const C = this.pos(q, c.c);
+    const X = rot(-beta, [C[0] - O[0], C[1] - O[1]]);
+    const hit = closest(c.curve, X, c.hint);
+    c.hint = hit.theta;
+    return { ...hit, X, beta };
   }
 
   q0(): number[] {
@@ -220,6 +315,17 @@ export class KinematicSystem {
           r.push(Math.hypot(a[0] - b[0], a[1] - b[1]) - t);
           break;
         }
+        case 'gear':
+          r.push(c.ra * (this.phi(q, c.i) - this.phi(q, c.k)) + c.rb * (this.phi(q, c.j) - this.phi(q, c.k)));
+          break;
+        case 'rack': {
+          const P = this.pos(q, c.rp);
+          r.push(c.e[0] * (P[0] - c.rp0[0]) + c.e[1] * (P[1] - c.rp0[1]) - c.r * this.phi(q, c.i));
+          break;
+        }
+        case 'cam':
+          r.push(this.camContact(q, c).d);
+          break;
       }
     }
     return r;
@@ -287,9 +393,72 @@ export class KinematicSystem {
           J.push(r);
           break;
         }
+        case 'gear': {
+          const r = row();
+          if (c.i >= 0) r[3 * c.i + 2]! += c.ra;
+          if (c.j >= 0) r[3 * c.j + 2]! += c.rb;
+          if (c.k >= 0) r[3 * c.k + 2]! -= c.ra + c.rb;
+          J.push(r);
+          break;
+        }
+        case 'rack': {
+          const r = row();
+          this.addPointGrad(r, q, c.rp, c.e);
+          if (c.i >= 0) r[3 * c.i + 2]! -= c.r;
+          J.push(r);
+          break;
+        }
+        case 'cam': {
+          const { n, X, beta } = this.camContact(q, c);
+          const g = rot(beta, n); // contact normal in the world frame, cam to roller
+          const r = row();
+          this.addPointGrad(r, q, c.c, g);
+          this.addPointGrad(r, q, c.o, [-g[0], -g[1]]);
+          if (c.i >= 0) r[3 * c.i + 2]! += n[0] * X[1] - n[1] * X[0];
+          J.push(r);
+          break;
+        }
       }
     }
     return J;
+  }
+
+  /**
+   * The Jacobian used for forces. Gear and rack rows become rolling conditions
+   * at the current pitch point: the same motion, but their multiplier is the
+   * tooth force acting at the pitch point, so the pivots carry it as they
+   * really do (a row in the angles alone would apply pure couples instead).
+   */
+  forceJacobian(q: number[]): number[][] {
+    const J = this.jacobian(q);
+    let k = 0;
+    for (const c of this.constraints) {
+      const rows = c.kind === 'revolute' ? 2 : 1;
+      if (c.kind === 'gear' || c.kind === 'rack') {
+        const r = new Array<number>(this.n).fill(0);
+        const { P, t } = this.pitchPoint(q, c);
+        this.addPointGrad(r, q, this.attachAt(q, c.i, P), t);
+        this.addPointGrad(r, q, this.attachAt(q, c.j, P), [-t[0], -t[1]]);
+        J[k] = r;
+      }
+      k += rows;
+    }
+    return J;
+  }
+
+  /** Current pitch point of a gear or rack mesh, the tangent along which the teeth push, and the line of centres. */
+  pitchPoint(q: number[], c: Extract<Constraint, { kind: 'gear' | 'rack' }>): { P: Vec; t: Vec; u: Vec } {
+    const A = this.pos(q, c.oa);
+    if (c.kind === 'rack') return { P: [A[0] + c.r * c.n[0], A[1] + c.r * c.n[1]], t: c.e, u: c.n };
+    const B = this.pos(q, c.ob);
+    const d = Math.hypot(B[0] - A[0], B[1] - A[1]) || 1;
+    const u: Vec = [(B[0] - A[0]) / d, (B[1] - A[1]) / d];
+    return { P: [A[0] + c.ra * u[0], A[1] + c.ra * u[1]], t: [-u[1], u[0]], u };
+  }
+
+  /** The constraints, for callers that report per-joint results. */
+  rowConstraint(index: number): Constraint {
+    return this.constraints[index]!;
   }
 
   /** dPhi/dt (the driver row only). */
@@ -346,6 +515,37 @@ export class KinematicSystem {
           const cb = this.centripetal(q, qd, c.q);
           const curv = (dd[0] * dd[0] + dd[1] * dd[1] - (e[0] * dd[0] + e[1] * dd[1]) ** 2) / len;
           g.push(-(e[0] * (ca[0] - cb[0]) + e[1] * (ca[1] - cb[1]) + curv));
+          break;
+        }
+        case 'gear':
+          g.push(0);
+          break;
+        case 'rack': {
+          const cr = this.centripetal(q, qd, c.rp);
+          g.push(-(c.e[0] * cr[0] + c.e[1] * cr[1]));
+          break;
+        }
+        case 'cam': {
+          // Second derivative of the contact distance along q': numerical, the
+          // distance function being smooth (the pitch curve is C2 for laws with
+          // continuous acceleration).
+          let size = 0;
+          for (let i = 0; i < this.n; i++)
+            size = Math.max(size, Math.abs(qd[i]!) * (i % 3 === 2 ? this.scale : 1));
+          if (size === 0) {
+            g.push(0);
+            break;
+          }
+          const h = (1e-4 * this.scale) / size;
+          const at = (f: number) =>
+            this.camContact(
+              q.map((v, i) => v + f * h * qd[i]!),
+              c,
+            ).d;
+          const hint = c.hint;
+          const d2 = (at(1) - 2 * at(0) + at(-1)) / (h * h);
+          c.hint = hint;
+          g.push(-d2);
           break;
         }
       }

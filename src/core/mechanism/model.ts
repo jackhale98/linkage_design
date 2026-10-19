@@ -15,6 +15,9 @@
 // - The driver is the one input that moves the mechanism.
 
 import type { Sketch } from '../sketch/types';
+import { camPitchCurve, type PitchCurve } from '../cam/analysis';
+import { fitMountAngle } from '../cam/curve';
+import type { CamData } from '../cam/types';
 import { BODY_COLORS, GROUND, type Body, type DriverSpec, type JointType, type MechanismData } from './types';
 
 export interface MBody {
@@ -66,6 +69,8 @@ export interface MechanismModel {
   actuatorLine: string | null;
   issues: MechanismIssue[];
   positions: Map<string, [number, number]>;
+  /** Cam and gear joints, resolved against the mechanism. */
+  pairs: MPair[];
   /** Display name of every point: its sketch label, else its ID (unique). */
   pointNames: Map<string, string>;
   /** End points of every sketch line. */
@@ -181,7 +186,59 @@ function jointKey(point: string, line: string, a: string, b: string): string {
 }
 
 /** Derive the kinematic model. Does not modify its inputs. */
-export function buildModel(sketch: Sketch, mech: MechanismData): MechanismModel {
+export type MPair =
+  | {
+      id: string;
+      type: 'gear';
+      a: string;
+      b: string;
+      /** The link both gear centres pivot on (ground, or an arm). */
+      carrier: string;
+      pa: string;
+      pb: string;
+      /** Pitch radii, from the drawn centre distance split by the tooth counts. */
+      ra: number;
+      rb: number;
+      za: number;
+      zb: number;
+      /** Pressure angle (rad). */
+      pressure: number;
+    }
+  | {
+      id: string;
+      type: 'rack';
+      /** Pinion link, pivoting on ground at pa. */
+      a: string;
+      /** Rack link. */
+      b: string;
+      pa: string;
+      line: string;
+      /** Pinion pitch radius: centre to the rack's pitch line. */
+      r: number;
+      za: number;
+      /** Unit vector from the pinion centre to the pitch line, and the rack's direction of travel (normal turned +90°). */
+      n: [number, number];
+      e: [number, number];
+      /** Pitch point at the drawn pose. */
+      pitch: [number, number];
+      pressure: number;
+    }
+  | {
+      id: string;
+      type: 'cam';
+      camId: string;
+      /** Cam link (or ground) and the cam centre on it. */
+      a: string;
+      pa: string;
+      /** Follower link and the roller centre on it. */
+      b: string;
+      pb: string;
+      /** Cam frame orientation at the drawn pose (rad). */
+      alpha: number;
+      curve: PitchCurve;
+    };
+
+export function buildModel(sketch: Sketch, mech: MechanismData, cams: CamData[] = []): MechanismModel {
   const issues: MechanismIssue[] = [];
   const ends = lineEnds(sketch);
   const positions = new Map(sketch.points.map((p) => [p.id, [p.x, p.y] as [number, number]]));
@@ -338,6 +395,13 @@ export function buildModel(sketch: Sketch, mech: MechanismData): MechanismModel 
     }
   }
 
+  const pairs = resolvePairs(
+    mech,
+    cams,
+    { bodies, joints, groundPoints, positions, lineEnds: lineEnds(sketch) },
+    issues,
+  );
+
   if (bodies.length === 0)
     issues.push({
       severity: 'warning',
@@ -355,6 +419,7 @@ export function buildModel(sketch: Sketch, mech: MechanismData): MechanismModel 
     groundLines,
     pointBodies,
     joints,
+    pairs,
     driver,
     actuatorLine: actuator,
     issues,
@@ -375,4 +440,154 @@ function displayNames(sketch: Sketch): Map<string, string> {
       return [p.id, ok ? p.label : p.label ? `${p.label} (${p.id})` : p.id];
     }),
   );
+}
+
+/** Check each cam and gear joint against the mechanism and work out its geometry. */
+function resolvePairs(
+  mech: MechanismData,
+  cams: CamData[],
+  m: {
+    bodies: MBody[];
+    joints: MJoint[];
+    groundPoints: Set<string>;
+    positions: Map<string, [number, number]>;
+    lineEnds: Map<string, [string, string]>;
+  },
+  issues: MechanismIssue[],
+): MPair[] {
+  const out: MPair[] = [];
+  const err = (id: string, message: string) =>
+    issues.push({ severity: 'error', message: `${id}: ${message}` });
+  const isBody = (b: string) => b === GROUND || m.bodies.some((x) => x.id === b);
+  const onBody = (b: string, p: string) =>
+    b === GROUND ? m.groundPoints.has(p) : !!m.bodies.find((x) => x.id === b)?.points.includes(p);
+  const pos = (p: string) => m.positions.get(p);
+  /** Links a body pivots on at a point (other side of its revolutes there). */
+  const pivots = (b: string, p: string) =>
+    m.joints
+      .filter((j) => j.type === 'revolute' && j.point === p && (j.a === b || j.b === b))
+      .map((j) => (j.a === b ? j.b : j.a));
+
+  for (const r of mech.pairs) {
+    if (!isBody(r.bodyA) || !isBody(r.bodyB)) {
+      err(r.id, 'its links no longer exist');
+      continue;
+    }
+    if (r.bodyA === r.bodyB) {
+      err(r.id, 'needs two different links');
+      continue;
+    }
+    const A = pos(r.pointA);
+    if (!A || !onBody(r.bodyA, r.pointA)) {
+      err(r.id, `point ${r.pointA} isn't on ${r.bodyA}`);
+      continue;
+    }
+    const pressure = (r.pressure * Math.PI) / 180;
+    if (r.type === 'gear') {
+      const B = pos(r.pointB);
+      if (!B || !onBody(r.bodyB, r.pointB)) {
+        err(r.id, `point ${r.pointB} isn't on ${r.bodyB}`);
+        continue;
+      }
+      const carriers = pivots(r.bodyA, r.pointA).filter((c) => pivots(r.bodyB, r.pointB).includes(c));
+      if (r.bodyA === GROUND || r.bodyB === GROUND || !carriers.length) {
+        err(r.id, 'both gears must turn on pivots at their centres, on the same link (ground or an arm)');
+        continue;
+      }
+      const d = Math.hypot(B[0] - A[0], B[1] - A[1]);
+      if (!(d > 0)) {
+        err(r.id, 'the gear centres coincide');
+        continue;
+      }
+      const ra = (d * r.teethA) / (r.teethA + r.teethB);
+      out.push({
+        id: r.id,
+        type: 'gear',
+        a: r.bodyA,
+        b: r.bodyB,
+        carrier: carriers[0]!,
+        pa: r.pointA,
+        pb: r.pointB,
+        ra,
+        rb: d - ra,
+        za: r.teethA,
+        zb: r.teethB,
+        pressure,
+      });
+    } else if (r.type === 'rack') {
+      const ends = m.lineEnds.get(r.line);
+      const body = m.bodies.find((x) => x.id === r.bodyB);
+      if (!ends || !body?.lines.includes(r.line)) {
+        err(r.id, `pitch line ${r.line} isn't a line of the rack ${r.bodyB}`);
+        continue;
+      }
+      if (!pivots(r.bodyA, r.pointA).includes(GROUND)) {
+        err(r.id, 'the pinion must turn on a ground pivot at its centre');
+        continue;
+      }
+      const L0 = pos(ends[0])!;
+      const L1 = pos(ends[1])!;
+      const len = Math.hypot(L1[0] - L0[0], L1[1] - L0[1]) || 1;
+      const u: [number, number] = [(L1[0] - L0[0]) / len, (L1[1] - L0[1]) / len];
+      const t = (A[0] - L0[0]) * u[0] + (A[1] - L0[1]) * u[1];
+      const foot: [number, number] = [L0[0] + t * u[0], L0[1] + t * u[1]];
+      const rr = Math.hypot(foot[0] - A[0], foot[1] - A[1]);
+      if (!(rr > 0)) {
+        err(r.id, 'the pinion centre is on the pitch line');
+        continue;
+      }
+      const n: [number, number] = [(foot[0] - A[0]) / rr, (foot[1] - A[1]) / rr];
+      out.push({
+        id: r.id,
+        type: 'rack',
+        a: r.bodyA,
+        b: r.bodyB,
+        pa: r.pointA,
+        line: r.line,
+        r: rr,
+        za: r.teethA,
+        n,
+        e: [-n[1], n[0]],
+        pitch: foot,
+        pressure,
+      });
+    } else {
+      const B = pos(r.pointB);
+      if (!B || !onBody(r.bodyB, r.pointB)) {
+        err(r.id, `point ${r.pointB} isn't on ${r.bodyB}`);
+        continue;
+      }
+      const cam = cams.find((c) => c.id === r.cam);
+      if (!cam) {
+        err(r.id, `cam ${r.cam || '(none)'} doesn't exist; design it in the Cam workspace`);
+        continue;
+      }
+      const curve = camPitchCurve(cam);
+      if ('message' in curve) {
+        err(r.id, curve.message);
+        continue;
+      }
+      const D: [number, number] = [B[0] - A[0], B[1] - A[1]];
+      const alpha = r.angle !== undefined ? (r.angle * Math.PI) / 180 : fitMountAngle(curve, D);
+      if (alpha === null) {
+        err(
+          r.id,
+          `the roller at ${r.pointB} can't touch ${cam.id} at its drawn distance from the cam centre`,
+        );
+        continue;
+      }
+      out.push({
+        id: r.id,
+        type: 'cam',
+        camId: cam.id,
+        a: r.bodyA,
+        pa: r.pointA,
+        b: r.bodyB,
+        pb: r.pointB,
+        alpha,
+        curve,
+      });
+    }
+  }
+  return out;
 }
