@@ -1,0 +1,150 @@
+/* Design tokens. Light is the default; dark applies from the system setting
+   unless the user forces a theme with <html data-theme="light|dark">. */
+
+:root {
+  color-scheme: light;
+
+  --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 15px;
+  --text-xl: 18px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+
+  --duration: 140ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  --topbar-h: 52px;
+  --rail-w: 52px;
+  --inspector-w: 300px;
+
+  /* Surfaces and text */
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --surface-2: #f7f8fa;
+  --surface-hover: #eef0f3;
+  --surface-active: #e6e9ed;
+  --border: #e1e4e8;
+  --border-strong: #c9ced5;
+  --text: #1a1e23;
+  --text-muted: #5a636e;
+  --text-faint: #8a929c;
+
+  /* Accent (UI and selection) */
+  --accent: #0f766e;
+  --accent-hover: #0d6560;
+  --accent-soft: #e3f3f1;
+  --accent-text: #ffffff;
+  --focus: #14b8a6;
+
+  /* Feedback */
+  --danger: #c62828;
+  --danger-soft: #fdecec;
+  --warning: #a15c00;
+  --warning-soft: #fff4e0;
+  --success: #1e7d32;
+
+  /* Canvas */
+  --canvas-bg: #fbfbfc;
+  --grid-minor: #eef0f2;
+  --grid-major: #dfe3e8;
+  --axis: #b9c0c9;
+
+  /* Engineering semantics */
+  --geom-under: #2563eb;
+  --geom-full: #1a1e23;
+  --geom-over: #d32f2f;
+  --load-applied: #e8590c;
+  --load-reaction: #7e3fbf;
+
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 0.06);
+  --shadow-md: 0 4px 12px rgb(16 24 40 / 0.1), 0 1px 3px rgb(16 24 40 / 0.06);
+  --shadow-lg: 0 16px 40px rgb(16 24 40 / 0.18);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0e1013;
+  --surface: #16191e;
+  --surface-2: #1b1f25;
+  --surface-hover: #22272e;
+  --surface-active: #2a3038;
+  --border: #272c34;
+  --border-strong: #3a414b;
+  --text: #e7e9ec;
+  --text-muted: #a0a8b3;
+  --text-faint: #6f7883;
+  --accent: #2dd4bf;
+  --accent-hover: #5eead4;
+  --accent-soft: #123532;
+  --accent-text: #04201d;
+  --focus: #5eead4;
+  --danger: #ff6b6b;
+  --danger-soft: #3a1a1c;
+  --warning: #f5b041;
+  --warning-soft: #33280f;
+  --success: #5fd47a;
+  --canvas-bg: #111418;
+  --grid-minor: #181c21;
+  --grid-major: #232830;
+  --axis: #3d4550;
+  --geom-under: #60a5fa;
+  --geom-full: #e7e9ec;
+  --geom-over: #ff6b6b;
+  --load-applied: #ff922b;
+  --load-reaction: #b98cf0;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 14px rgb(0 0 0 / 0.45);
+  --shadow-lg: 0 16px 44px rgb(0 0 0 / 0.6);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --bg: #0e1013;
+    --surface: #16191e;
+    --surface-2: #1b1f25;
+    --surface-hover: #22272e;
+    --surface-active: #2a3038;
+    --border: #272c34;
+    --border-strong: #3a414b;
+    --text: #e7e9ec;
+    --text-muted: #a0a8b3;
+    --text-faint: #6f7883;
+    --accent: #2dd4bf;
+    --accent-hover: #5eead4;
+    --accent-soft: #123532;
+    --accent-text: #04201d;
+    --focus: #5eead4;
+    --danger: #ff6b6b;
+    --danger-soft: #3a1a1c;
+    --warning: #f5b041;
+    --warning-soft: #33280f;
+    --success: #5fd47a;
+    --canvas-bg: #111418;
+    --grid-minor: #181c21;
+    --grid-major: #232830;
+    --axis: #3d4550;
+    --geom-under: #60a5fa;
+    --geom-full: #e7e9ec;
+    --geom-over: #ff6b6b;
+    --load-applied: #ff922b;
+    --load-reaction: #b98cf0;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-md: 0 4px 14px rgb(0 0 0 / 0.45);
+    --shadow-lg: 0 16px 44px rgb(0 0 0 / 0.6);
+  }
+}

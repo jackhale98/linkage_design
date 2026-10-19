@@ -1,6 +1,6 @@
 # Linkage Design — Design Document
 
-Status: **draft for review** · Last updated: 2026-10-19
+Status: **approved** · Phase 0 complete · Last updated: 2026-10-19
 
 A free, open source, browser-based tool for designing planar mechanisms,
 linkages and cams. It runs as a static site on GitHub Pages (this
@@ -462,7 +462,8 @@ Column headers include units, for example `P3_vx [mm/s]`.
 
 ### 8.4 Other persistence
 
-- **Autosave** to browser localStorage, with a "restore last session" prompt.
+- **Autosave** to browser localStorage in the project CSV format. The last session is
+  restored automatically on load, with a one-click "Start new" in the notification.
 - **Undo/redo** of all edits (snapshot based; projects are small).
 - **Later:** a shareable link with the project compressed into the URL hash.
 
