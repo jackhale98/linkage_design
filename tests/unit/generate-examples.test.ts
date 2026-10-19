@@ -9,6 +9,7 @@ import type { Sketch } from '../../src/core/sketch/types';
 import { barMassProperties } from '../../src/core/forces/solve';
 import { newLoad, type Load } from '../../src/core/forces/types';
 import { emptyCam } from '../../src/core/cam/types';
+import type { PairRecord } from '../../src/core/mechanism/types';
 
 const ctx = { angleScale: Math.PI / 180 };
 const DATE = new Date('2026-10-19T12:00:00.000Z');
@@ -295,10 +296,177 @@ function cam() {
   writeFileSync('src/examples/cam.csv', serializeProject(p));
 }
 
+const pairRec = (patch: Partial<PairRecord>): PairRecord => ({
+  id: '',
+  type: 'gear',
+  bodyA: '',
+  pointA: '',
+  bodyB: '',
+  pointB: '',
+  line: '',
+  cam: '',
+  teethA: 20,
+  teethB: 20,
+  pressure: 20,
+  extras: {},
+  ...patch,
+});
+
+function camSlide() {
+  const p = newProject(DATE);
+  p.meta.name = 'Cam-driven slide';
+  p.meta.notes =
+    'A cam designed in the Cam workspace (C1) on a shaft at O drives a roller follower up a vertical slide. A compression spring holds the roller on the cam at 300 rpm.';
+  const seg = (id: string, type: 'rise' | 'return' | 'dwell', duration: number, lift = 0) => ({
+    id,
+    type,
+    duration,
+    lift,
+    law: 'poly_345' as const,
+    extras: {},
+  });
+  p.cams = [
+    {
+      ...emptyCam('C1', 'Lift cam'),
+      baseRadius: 40,
+      rollerRadius: 10,
+      speed: 300,
+      segments: [
+        seg('S1', 'dwell', 60),
+        seg('S2', 'rise', 120, 25),
+        seg('S3', 'dwell', 60),
+        seg('S4', 'return', 120, 25),
+      ],
+    },
+  ];
+  const s = p.sketch;
+  const o = addPoint(s, 0, 0);
+  const k = addPoint(s, 25, 0);
+  const r = addPoint(s, 0, 50);
+  const t = addPoint(s, 0, 110);
+  const f1 = addPoint(s, 0, 150);
+  const f2 = addPoint(s, 0, 180);
+  const top = addPoint(s, 0, 200);
+  label(s, { [o]: 'O', [r]: 'Roller', [t]: 'T', [top]: 'S' });
+  fix(s, o, f1, f2, top);
+  addLine(s, o, k); // L1 cam shaft
+  addLine(s, r, t); // L2 follower
+  addLine(s, f1, f2, true); // L3 slide
+  add(
+    s,
+    { type: 'distance', refs: ['L1'], value: 25 },
+    { type: 'horizontal', refs: ['L1'] },
+    { type: 'point_on_line', refs: [r, 'L3'] },
+    { type: 'point_on_line', refs: [t, 'L3'] },
+    { type: 'distance', refs: ['L2'], value: 60 },
+    { type: 'distance', refs: [o, r], value: 50 },
+  );
+  p.mechanism.driver = { ...p.mechanism.driver, type: 'rotary', line: 'L1', steps: 360, speed: 300 };
+  save(
+    'cam-slide.csv',
+    p,
+    { L1: { name: 'Cam shaft', lines: [] }, L2: { name: 'Follower', lines: [] } },
+    (q) => {
+      const shaft = bodyWith(q, 'L1');
+      const follower = bodyWith(q, 'L2');
+      Object.assign(follower, { mass: 0.5 });
+      q.mechanism.pairs = [
+        pairRec({
+          id: 'K1',
+          type: 'cam',
+          cam: 'C1',
+          bodyA: shaft.id,
+          pointA: o,
+          bodyB: follower.id,
+          pointB: r,
+        }),
+      ];
+      q.forces = {
+        ...q.forces,
+        mode: 'kinetostatic',
+        // Compressed 30 mm at the drawn pose: pushes the follower down onto the cam.
+        loads: [loadOf('S1', 'spring', { point: t, pointB: top, k: 2, free: 120 })],
+      };
+    },
+  );
+}
+
+function gears() {
+  const p = newProject(DATE);
+  p.meta.name = 'Gear pair and rack';
+  p.meta.notes =
+    'A 20-tooth gear (A) drives a 40-tooth gear (B), which drives a rack against a 200 N load. Module 3 mm, 20° pressure angle.';
+  const s = p.sketch;
+  const o1 = addPoint(s, 0, 0);
+  const a = addPoint(s, 0, 25);
+  const o2 = addPoint(s, 90, 0);
+  const b = addPoint(s, 90, 40);
+  const g1 = addPoint(s, -100, -60);
+  const g2 = addPoint(s, 400, -60);
+  const r1 = addPoint(s, 40, -60);
+  const r2 = addPoint(s, 160, -60);
+  label(s, { [o1]: 'A', [o2]: 'B' });
+  fix(s, o1, o2, g1, g2);
+  addLine(s, o1, a); // L1 gear A spoke
+  addLine(s, o2, b); // L2 gear B spoke
+  addLine(s, g1, g2, true); // L3 slide
+  addLine(s, r1, r2); // L4 rack
+  add(
+    s,
+    { type: 'distance', refs: ['L1'], value: 25 },
+    { type: 'vertical', refs: ['L1'] },
+    { type: 'distance', refs: ['L2'], value: 40 },
+    { type: 'vertical', refs: ['L2'] },
+    { type: 'point_on_line', refs: [r1, 'L3'] },
+    { type: 'point_on_line', refs: [r2, 'L3'] },
+    { type: 'distance', refs: ['L4'], value: 120 },
+    { type: 'distance', refs: [g1, r1], value: 140 },
+  );
+  p.mechanism.driver = {
+    ...p.mechanism.driver,
+    type: 'rotary',
+    line: 'L1',
+    start: 90,
+    end: 270,
+    steps: 180,
+    speed: 30,
+  };
+  save(
+    'gears.csv',
+    p,
+    { L1: { name: 'Gear A', lines: [] }, L2: { name: 'Gear B', lines: [] }, L4: { name: 'Rack', lines: [] } },
+    (q) => {
+      const A = bodyWith(q, 'L1');
+      const B = bodyWith(q, 'L2');
+      const rack = bodyWith(q, 'L4');
+      q.mechanism.pairs = [
+        pairRec({
+          id: 'G1',
+          type: 'gear',
+          bodyA: A.id,
+          pointA: o1,
+          bodyB: B.id,
+          pointB: o2,
+          teethA: 20,
+          teethB: 40,
+        }),
+        pairRec({ id: 'R1', type: 'rack', bodyA: B.id, pointA: o2, bodyB: rack.id, line: 'L4', teethA: 40 }),
+      ];
+      q.forces = {
+        ...q.forces,
+        mode: 'static',
+        loads: [loadOf('F1', 'force', { body: rack.id, point: r2, fx: -200 })],
+      };
+    },
+  );
+}
+
 it.skipIf(!process.env.GENERATE_EXAMPLES)('generates example projects', () => {
   fourBar();
   sliderCrank();
   quickReturn();
   boom();
   cam();
+  camSlide();
+  gears();
 });

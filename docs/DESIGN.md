@@ -365,7 +365,7 @@ motion, rather than from separate per-follower textbook formulas. This keeps
 all four follower types on one tested code path, which is then validated
 against those formulas.
 
-Integrating cams into linkages (a cam-follower joint) is a later phase.
+Cams can also be mounted in linkages as cam-follower joints (see 7.4).
 
 ### As built (Phase 4)
 
@@ -383,6 +383,16 @@ Integrating cams into linkages (a cam-follower joint) is a later phase.
   - Contact force: G divided by the normal's component along the motion.
   - Cam torque: G · ds/dθ.
 - **Validation.** Beyond the formula checks, the generated profiles are re-solved against the follower (lower the roller or face until it touches) and must reproduce s(θ). This is done for translating rollers in both rotation directions, flat faces and oscillating rollers.
+
+### 7.4 Cam and gear joints in linkages (as built)
+
+A project holds several cams. Any of them can be mounted on a link of a mechanism, alongside gear pairs and racks, as a **higher pair** (`[pairs]` in the file).
+
+- **Cam joint.** The roller centre on the follower link stays on the cam's pitch curve, carried by the cam's link. The row is the signed distance from the roller centre to the pitch curve, found by a warm-started Newton closest-point search (with a coarse global search as a fallback). The pitch curve P(θ) and its first two derivatives are exact. The mount angle is fitted at load time so the drawn roller touches the curve (the root of |P(θ)| = |D| nearest θ = 0), or set by hand.
+- **Gear pair.** φ measured relative to the carrier k (the link both centre pivots sit on): r<sub>a</sub>(φ<sub>a</sub> − φ<sub>k</sub>) + r<sub>b</sub>(φ<sub>b</sub> − φ<sub>k</sub>) = 0. Pitch radii split the drawn centre distance in the tooth ratio.
+- **Rack and pinion.** e·(rack point − its drawn position) − r·φ<sub>pinion</sub> = 0, with e along the pitch line. The pinion turns on a ground pivot.
+- **Forces.** For the force solve, gear and rack rows are replaced by rolling-contact rows at the pitch point, so the multiplier is the tangential tooth force and the pivots carry it. A second solve adds the separating force F<sub>t</sub>·tan α at the pitch point. The cam row's multiplier is the contact force along the normal; where it goes negative the roller would lift off, and the analysis reports the range.
+- **Joint rule.** A pinned point in a slot becomes a pivot only when the slot is on a moving link; a dimension along a ground line only places the drawing, so the follower in a ground guide keeps sliding.
 
 ---
 
@@ -676,7 +686,7 @@ Each phase ends with a deployed, usable site.
 | **2. Motion** | Bodies, ground, revolute/slider/pin-in-slot joints, rotary/linear drivers, sweep, animation, traces, plots, transmission angle, Grashof, limits, kinematics CSV, templates | Matches closed-form and textbook kinematics to ≤ 0.01 % |
 | **3. Forces** | Mass properties, point forces, torques, gravity, springs; static and kinetostatic; joint reactions, driver effort, force arrows, indeterminacy warnings, forces CSV | Matches textbook kinetostatic examples; virtual-work residual ≤ 1e-9 relative |
 | **4. Cams** | Motion program, all v1 followers, SVAJ, pressure angle, curvature/undercut, follower force/jump, profile CSV/DXF/SVG, cam animation | Matches textbook cam examples; all motion-law tests pass |
-| **5. Extensions** | Linkage synthesis (2- and 3-position, function generation), arcs/tangency, cam-follower joints in linkages, share links, mass properties from outlines, joint friction, multi-driver | Prioritised after phase 4 based on feedback |
+| **5. Extensions** | Linkage synthesis (2- and 3-position, function generation), arcs/tangency, share links, mass properties from outlines, joint friction, multi-driver | Prioritised after phase 4 based on feedback |
 
 ---
 

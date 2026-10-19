@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import PairsPanel from './PairsPanel.svelte';
   import NumberField from './NumberField.svelte';
   import { BODY_COLORS, GROUND, type DriverType } from '../../core/mechanism/types';
   import { defaultRange } from '../../core/mechanism/motion';
@@ -296,6 +297,8 @@
     <p class="muted small">Shift-click links to select several, then merge them into one rigid link.</p>
   {/if}
 </section>
+
+{#if mode === 'mechanism'}<PairsPanel />{/if}
 
 {#if mode === 'motion'}
   <section>

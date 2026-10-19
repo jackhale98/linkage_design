@@ -9,9 +9,10 @@
 // - Joints: a revolute wherever two bodies (or a body and ground) share a
 //   point; a pin-in-slot wherever a sketch point_on_line constraint ties a
 //   point of one body to a line of another (a slider when its record says so).
-//   If the sketch also fixes where that point sits along the line (a distance
-//   to a point of the line's link, or a midpoint), the point can't slide: it is
-//   a pivot partway along the link, so the joint is a revolute.
+//   If the line is on a moving link and the sketch also fixes where the point
+//   sits along it (a distance to a point of that link, or a midpoint), the
+//   point can't slide: it is a pivot partway along the link, so the joint is
+//   a revolute. (On a ground slide such a dimension just sets the drawn pose.)
 // - The driver is the one input that moves the mechanism.
 
 import type { Sketch } from '../sketch/types';
@@ -311,7 +312,9 @@ export function buildModel(sketch: Sketch, mech: MechanismData, cams: CamData[] 
     const lb = lineBody.get(l);
     if (!lb) continue;
     const owners = groundPoints.has(p) ? [GROUND] : (pointBodies.get(p) ?? []);
-    const pinned = located(p, l, lb);
+    // On a moving link, a dimensioned point is a pivot partway along it. On a
+    // ground slide, a dimension only sets where the slider is drawn.
+    const pinned = lb !== GROUND && located(p, l, lb);
     for (const pb of owners) {
       if (pb === lb) continue;
       if (pinned) {

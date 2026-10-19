@@ -364,6 +364,7 @@
             {traces}
             {vectors}
             loose={motionUi.result.freedom?.bodies}
+            camShapes={motionUi.camShapes}
           />
           {#if motionUi.result.freedom}
             <FreedomMarks {view} {size} points={motionUi.result.freedom.points} tone="over" />

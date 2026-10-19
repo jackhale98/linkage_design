@@ -16,6 +16,7 @@
     traces = [],
     vectors = [],
     loose = [],
+    camShapes = new Map(),
   }: {
     view: View;
     size: Size;
@@ -28,6 +29,8 @@
     vectors?: { point: string; v: Vec; color: string }[];
     /** Links that can still move when they shouldn't (extra degrees of freedom). */
     loose?: string[];
+    /** Cam outlines (cam frame) by cam ID, for drawing cam joints. */
+    camShapes?: Map<string, Vec[]>;
   } = $props();
 
   const S = (p: Vec): Vec => worldToScreen(view, size, p[0], p[1]);
@@ -62,6 +65,125 @@
       const pts = b.points.map((p) => S(pose.get(p)!));
       const poly = pts.length >= 3 ? hull(pts) : [];
       return { ...b, segs, poly };
+    }),
+  );
+
+  // ---------------------------------------------------------------- cams and gears
+
+  /** How far a body has turned from the drawn pose (rad), from its first line. */
+  function turned(body: string): number {
+    if (body === GROUND) return 0;
+    const b = model.bodies.find((x) => x.id === body);
+    const line = b?.lines[0];
+    if (!line) return 0;
+    const [p1, p2] = model.lineEnds.get(line)!;
+    const a0 = model.positions.get(p1)!;
+    const b0 = model.positions.get(p2)!;
+    const a1 = pose.get(p1)!;
+    const b1 = pose.get(p2)!;
+    return Math.atan2(b1[1] - a1[1], b1[0] - a1[0]) - Math.atan2(b0[1] - a0[1], b0[0] - a0[0]);
+  }
+
+  /** A gear outline: z simple teeth round the pitch radius r, the first tooth centred at angle a0. */
+  function gearPath(c: Vec, r: number, z: number, a0: number): string {
+    const m = (2 * r) / z;
+    const tip = r + m;
+    const root = Math.max(r - 1.25 * m, r * 0.2);
+    const step = (2 * Math.PI) / z;
+    const at = (rad: number, a: number) => S([c[0] + rad * Math.cos(a), c[1] + rad * Math.sin(a)]);
+    const pts: Vec[] = [];
+    for (let k = 0; k < z; k++) {
+      const t = a0 + k * step;
+      pts.push(
+        at(root, t - 0.3 * step),
+        at(tip, t - 0.14 * step),
+        at(tip, t + 0.14 * step),
+        at(root, t + 0.3 * step),
+      );
+    }
+    return 'M' + pts.map((p) => p.join(' ')).join('L') + 'Z';
+  }
+
+  const bodyColor = (id: string) => model.bodies.find((b) => b.id === id)?.color ?? 'var(--text-faint)';
+
+  type Shape = { key: string; d: string; color: string; open?: boolean; roller?: { at: Vec; r: number } };
+
+  const pairShapes = $derived(
+    model.pairs.flatMap((pr): Shape[] => {
+      if (pr.type === 'gear') {
+        const A0 = model.positions.get(pr.pa)!;
+        const B0 = model.positions.get(pr.pb)!;
+        const u0 = Math.atan2(B0[1] - A0[1], B0[0] - A0[0]);
+        // Teeth start interleaved at the pitch point and stay so as the gears roll.
+        return [
+          {
+            key: `${pr.id}a`,
+            d: gearPath(pose.get(pr.pa)!, pr.ra, pr.za, u0 + turned(pr.a)),
+            color: bodyColor(pr.a),
+          },
+          {
+            key: `${pr.id}b`,
+            d: gearPath(pose.get(pr.pb)!, pr.rb, pr.zb, u0 + Math.PI + Math.PI / pr.zb + turned(pr.b)),
+            color: bodyColor(pr.b),
+          },
+        ];
+      }
+      if (pr.type === 'rack') {
+        const pin = gearPath(pose.get(pr.pa)!, pr.r, pr.za, Math.atan2(pr.n[1], pr.n[0]) + turned(pr.a));
+        // Rack teeth, fixed to the rack: spaces at the drawn pitch point, then every circular pitch.
+        const [l1, l2] = model.lineEnds.get(pr.line)!;
+        const s0 = model.positions.get(l1)!;
+        const e0 = model.positions.get(l2)!;
+        const len0 = Math.hypot(e0[0] - s0[0], e0[1] - s0[1]) || 1;
+        const dir0: Vec = [(e0[0] - s0[0]) / len0, (e0[1] - s0[1]) / len0];
+        const s1 = pose.get(l1)!;
+        const e1 = pose.get(l2)!;
+        const len1 = Math.hypot(e1[0] - s1[0], e1[1] - s1[1]) || 1;
+        const dir1: Vec = [(e1[0] - s1[0]) / len1, (e1[1] - s1[1]) / len1];
+        const side = -Math.sign(pr.n[0] * -dir0[1] + pr.n[1] * dir0[0]) || 1; // towards the pinion
+        const nrm: Vec = [-dir1[1] * side, dir1[0] * side];
+        const m = (2 * pr.r) / pr.za;
+        const p = Math.PI * m;
+        const at0 = (pr.pitch[0] - s0[0]) * dir0[0] + (pr.pitch[1] - s0[1]) * dir0[1];
+        const pts: string[] = [];
+        for (let k = Math.ceil(-at0 / p - 0.5); (k + 0.5) * p + at0 <= len0; k++) {
+          const c = at0 + (k + 0.5) * p;
+          if (c < 0) continue;
+          const P = (x: number, h: number): Vec => [
+            s1[0] + dir1[0] * x + nrm[0] * h,
+            s1[1] + dir1[1] * x + nrm[1] * h,
+          ];
+          const q = [
+            P(c - 0.3 * p, -1.25 * m),
+            P(c - 0.14 * p, m),
+            P(c + 0.14 * p, m),
+            P(c + 0.3 * p, -1.25 * m),
+          ].map(S);
+          pts.push('M' + q.map((v) => v.join(' ')).join('L'));
+        }
+        return [
+          { key: `${pr.id}p`, d: pin, color: bodyColor(pr.a) },
+          { key: `${pr.id}r`, d: pts.join(''), color: bodyColor(pr.b), open: true },
+        ];
+      }
+      const shape = camShapes.get(pr.camId);
+      if (!shape?.length) return [];
+      const O = pose.get(pr.pa)!;
+      const beta = pr.alpha + turned(pr.a);
+      const c = Math.cos(beta);
+      const sn = Math.sin(beta);
+      const d =
+        'M' +
+        shape.map(([x, y]) => S([O[0] + c * x - sn * y, O[1] + sn * x + c * y]).join(' ')).join('L') +
+        'Z';
+      return [
+        {
+          key: pr.id,
+          d,
+          color: bodyColor(pr.a),
+          roller: { at: S(pose.get(pr.pb)!), r: pr.curve.rollerRadius * view.scale },
+        },
+      ];
     }),
   );
 
@@ -140,6 +262,19 @@
 <g class="mech">
   {#each groundLines as [a, b], i (i)}
     <line x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} class="ground-line" />
+  {/each}
+
+  {#each pairShapes as sh (sh.key)}
+    <path
+      d={sh.d}
+      class="pair"
+      class:open={sh.open}
+      style:stroke={sh.color}
+      style:fill={sh.open ? 'none' : sh.color}
+    />
+    {#if sh.roller && sh.roller.r > 0}
+      <circle cx={sh.roller.at[0]} cy={sh.roller.at[1]} r={sh.roller.r} class="roller" />
+    {/if}
   {/each}
 
   {#each tracePaths as t (t.point)}
@@ -353,6 +488,22 @@
     stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
+  }
+
+  .pair {
+    fill-opacity: 0.14;
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+  }
+
+  .pair.open {
+    stroke-width: 2;
+  }
+
+  .roller {
+    fill: var(--canvas-bg);
+    stroke: var(--text);
+    stroke-width: 1.5;
   }
 
   .hover-ring {

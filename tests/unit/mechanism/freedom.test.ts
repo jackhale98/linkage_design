@@ -153,3 +153,23 @@ describe('sketch dimensions that only set the pose', () => {
     expect(msg).toContain('brace a four-sided loop with a diagonal link');
   });
 });
+
+describe('slider on a ground slide', () => {
+  it('stays a slider when its drawn position is dimensioned from a ground point', () => {
+    const p = newProject(new Date('2026-10-19T12:00:00Z'));
+    const s = emptySketch();
+    const g1 = addPoint(s, 0, 0);
+    const g2 = addPoint(s, 200, 0);
+    const a = addPoint(s, 60, 0);
+    const b = addPoint(s, 60, 40);
+    s.points[0]!.fixed = true;
+    s.points[1]!.fixed = true;
+    const slide = addLine(s, g1, g2, true);
+    addLine(s, a, b);
+    must(s, { type: 'point_on_line', refs: [a, slide] }, { type: 'distance', refs: [g1, a], value: 60 });
+    p.sketch = s;
+    syncMechanism(p.sketch, p.mechanism);
+    const m = computeMotion(p);
+    expect(m.model.joints.map((j) => j.type)).toEqual(['pin_in_slot']);
+  });
+});

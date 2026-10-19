@@ -4,9 +4,10 @@
 import * as medit from '../../core/mechanism/edit';
 import { quantities, type CycleFrame, type Quantity } from '../../core/mechanism/analysis';
 import { computeMotion, type MotionResult } from '../../core/mechanism/motion';
+import { analyzeCam } from '../../core/cam/analysis';
 import type { Attach } from '../../core/mechanism/kinematics';
 import type { Frame } from '../../core/mechanism/sweep';
-import type { DriverSpec, JointType } from '../../core/mechanism/types';
+import type { DriverSpec, JointType, PairRecord, PairType } from '../../core/mechanism/types';
 import { angleScale, type Project } from '../../core/model/project';
 import { solveForces, barMassProperties, type ForceResult } from '../../core/forces/solve';
 import { forceQuantities } from '../../core/forces/analysis';
@@ -83,6 +84,20 @@ class MotionUi {
   showLoads = $state(true);
   /** Load being edited in the Forces panel. */
   selectedLoad = $state<string | null>(null);
+  /** Outlines (cam frame) of the cams mounted by cam joints. */
+  camShapes: Map<string, [number, number][]> = $derived.by(() => {
+    const used = new Set(store.project.mechanism.pairs.filter((x) => x.type === 'cam').map((x) => x.cam));
+    const units = { length: store.project.meta.length_unit, force: store.project.meta.force_unit };
+    return new Map(
+      store.project.cams
+        .filter((c) => used.has(c.id))
+        .map(
+          (c) => [c.id, analyzeCam(c, units).samples.map((x) => x.surface)] as [string, [number, number][]],
+        ),
+    );
+  });
+  /** Cam or gear joint open for editing in the Mechanism panel. */
+  selectedPair = $state<string | null>(null);
 
   /** A pose dragged by hand where there's no sweep to follow (e.g. the Mechanism workspace). */
   testPose = $state.raw<{ result: MotionResult; q: number[] } | null>(null);
@@ -414,7 +429,7 @@ class MotionUi {
     }
     if (forces && !this.#effortPlotted && this.forceQuantities.length) {
       this.#effortPlotted = true;
-      if (!this.plotKeys.some((k) => /^[dfs]:/.test(k))) this.togglePlot('d:effort');
+      if (!this.plotKeys.some((k) => /^[dfsm]:/.test(k))) this.togglePlot('d:effort');
       return;
     }
     if (this.plotKeys.length || !this.quantities.length) return;
@@ -455,6 +470,93 @@ class MotionUi {
     this.pause();
     store.update((p) => medit.setDriver(p.sketch, p.mechanism, patch));
     this.phase = 0;
+  }
+
+  // ------------------------------------------------------------ cam and gear joints
+
+  /** Add a cam joint, gear pair or rack and pinion, guessing sensible links and points. */
+  addPair(type: PairType): void {
+    const { model } = this.result;
+    const project = store.project;
+    if (type === 'cam' && !project.cams.length) {
+      toasts.show('Design a cam in the Cam workspace first', 'info');
+      return;
+    }
+    const groundPivots = model.joints
+      .filter((j) => j.type === 'revolute' && (j.a === GROUND || j.b === GROUND))
+      .map((j) => ({ body: j.a === GROUND ? j.b : j.a, point: j.point }));
+    const d = model.driver;
+    const prefix = type === 'cam' ? 'K' : type === 'gear' ? 'G' : 'R';
+    let k = 1;
+    while (project.mechanism.pairs.some((x) => x.id === `${prefix}${k}`)) k++;
+    const rec: PairRecord = {
+      id: `${prefix}${k}`,
+      type,
+      bodyA: '',
+      pointA: '',
+      bodyB: '',
+      pointB: '',
+      line: '',
+      cam: type === 'cam' ? project.cams[0]!.id : '',
+      teethA: 20,
+      teethB: type === 'gear' ? 40 : 20,
+      pressure: 20,
+      extras: {},
+    };
+    const driven = d?.type === 'rotary' ? groundPivots.find((g) => g.body === d.body) : undefined;
+    const first = driven ?? groundPivots[0];
+    if (first) {
+      rec.bodyA = first.body;
+      rec.pointA = first.point;
+    }
+    if (type === 'gear') {
+      const other = groundPivots.find((g) => g.body !== rec.bodyA);
+      if (other) {
+        rec.bodyB = other.body;
+        rec.pointB = other.point;
+      }
+    } else if (type === 'rack') {
+      const slid = model.joints.find((j) => j.type !== 'revolute' && j.b !== rec.bodyA && j.a !== rec.bodyA);
+      const rack = slid ? (slid.a === GROUND ? slid.b : slid.a) : undefined;
+      const body = model.bodies.find((b) => b.id === rack);
+      if (body) {
+        rec.bodyB = body.id;
+        rec.line = body.lines[0] ?? '';
+      }
+    } else if (first) {
+      // Roller: the nearest point of another link to the cam centre.
+      const c = model.positions.get(first.point)!;
+      let best = Infinity;
+      for (const b of model.bodies) {
+        if (b.id === rec.bodyA) continue;
+        for (const pt of b.points) {
+          const q = model.positions.get(pt)!;
+          const dist = Math.hypot(q[0] - c[0], q[1] - c[1]);
+          if (dist > 0 && dist < best) {
+            best = dist;
+            rec.bodyB = b.id;
+            rec.pointB = pt;
+          }
+        }
+      }
+    }
+    store.update((p) => {
+      p.mechanism.pairs.push(rec);
+    });
+    this.selectedPair = rec.id;
+  }
+
+  updatePair(id: string, patch: Partial<PairRecord>): void {
+    store.update((p) => {
+      const r = p.mechanism.pairs.find((x) => x.id === id);
+      if (r) Object.assign(r, patch);
+    });
+  }
+
+  removePair(id: string): void {
+    store.update((p) => {
+      p.mechanism.pairs = p.mechanism.pairs.filter((x) => x.id !== id);
+    });
   }
 
   setJointType(id: string, type: JointType): void {

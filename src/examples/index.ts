@@ -4,6 +4,8 @@ import sliderCrank from './slider-crank.csv?raw';
 import quickReturn from './quick-return.csv?raw';
 import boom from './hydraulic-boom.csv?raw';
 import cam from './cam.csv?raw';
+import camSlide from './cam-slide.csv?raw';
+import gears from './gears.csv?raw';
 
 export interface Example {
   file: string;
@@ -38,6 +40,18 @@ export const EXAMPLES: Example[] = [
     name: 'Hydraulic boom',
     description: 'Boom raised by a linear actuator',
     text: boom,
+  },
+  {
+    file: 'cam-slide.csv',
+    name: 'Cam-driven slide',
+    description: 'A cam on a shaft driving a spring-loaded roller follower',
+    text: camSlide,
+  },
+  {
+    file: 'gears.csv',
+    name: 'Gear pair and rack',
+    description: 'A 20:40 gear pair driving a rack against a load',
+    text: gears,
   },
   {
     file: 'cam.csv',

@@ -203,6 +203,45 @@
       </section>
     {/if}
 
+    {#if forceSummary && forceSummary.pairs.length}
+      <section class="card wide">
+        <h3>Cams and gears</h3>
+        <table>
+          <thead><tr><th>Joint</th><th>Force</th><th>Peak at</th></tr></thead>
+          <tbody>
+            {#each forceSummary.pairs as pr (pr.id)}
+              <tr>
+                <td>
+                  <strong>{pr.id}</strong>
+                  <span class="muted"
+                    >{pr.kind === 'cam'
+                      ? 'cam contact'
+                      : pr.kind === 'gear'
+                        ? 'gear mesh, tooth force'
+                        : 'rack, tooth force'}</span
+                  >
+                </td>
+                <td class="num" class:warn={pr.kind === 'cam' && pr.min < 0}>
+                  {#if pr.kind === 'cam'}
+                    {sig(pr.min)} to {sig(pr.max)}
+                    {F}
+                    {#if pr.min < 0}<Icon name="alert" size={13} /> lifts off{/if}
+                  {:else}
+                    up to {sig(pr.max)} {F}
+                  {/if}
+                </td>
+                <td class="num">{fmt(pr.at)}{inputUnit}{pr.atBack ? ' (back)' : ''}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+        <p class="muted small">
+          Gear pivots also carry the separating force, F·tan(pressure angle). A cam contact force below zero
+          means the roller would leave the cam.
+        </p>
+      </section>
+    {/if}
+
     <section class="card export">
       <h3>Export</h3>
       <p class="muted small">

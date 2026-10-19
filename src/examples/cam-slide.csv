@@ -1,0 +1,103 @@
+﻿LinkageDesign,1
+# Linkage Design project file - https://github.com/jackhale98/linkage_design
+
+[project]
+key,value
+name,Cam-driven slide
+length_unit,mm
+force_unit,N
+angle_unit,deg
+notes,A cam designed in the Cam workspace (C1) on a shaft at O drives a roller follower up a vertical slide. A compression spring holds the roller on the cam at 300 rpm.
+created,2026-10-19T12:00:00.000Z
+modified,2026-10-19T12:00:00.000Z
+
+# Sketch points. fixed = anchored in place.
+[points]
+id,x,y,fixed,label
+P1,0,0,1,O
+P2,25,0,0,
+P3,0,50,0,Roller
+P4,0,110,0,T
+P5,0,150,1,
+P6,0,180,1,
+P7,0,200,1,S
+
+# Lines between points. construction = helper geometry.
+[lines]
+id,p1,p2,construction
+L1,P1,P2,0
+L2,P3,P4,0
+L3,P5,P6,1
+
+# Constraints and dimensions. Values use the project units; angles are counterclockwise from line a to line b.
+[constraints]
+id,type,a,b,c,value,reference,label_dx,label_dy
+C1,distance,L1,,,25,0,,
+C2,horizontal,L1,,,,0,,
+C3,point_on_line,P3,L3,,,0,,
+C4,point_on_line,P4,L3,,,0,,
+C5,distance,L2,,,60,0,,
+C6,distance,P1,P3,,50,0,,
+
+# Rigid bodies (links), each a group of sketch lines. ground = fixed to the frame.
+[bodies]
+id,name,lines,ground,color,mass,com_x,com_y,inertia
+B1,Cam shaft,L1,0,#2a78d6,,,,
+B2,Follower,L2,0,#eb6834,0.5,,,
+
+# Joints, derived from the sketch. type may be changed between pin_in_slot and slider.
+[joints]
+id,type,point,line,body_a,body_b
+J1,revolute,P1,,ground,B1
+J2,pin_in_slot,P3,L3,ground,B2
+J3,pin_in_slot,P4,L3,ground,B2
+
+# Cam and gear joints. cam: cam (Cam workspace ID) on body_a centred at point_a, roller centre point_b on body_b; angle = mount angle of the cam at the drawn pose (degrees, blank = fit to the roller). gear: gears on body_a and body_b centred at point_a and point_b (external mesh, pressure angle in degrees). rack: pinion on body_a centred at point_a, rack body_b with pitch line `line`.
+[pairs]
+id,type,body_a,point_a,body_b,point_b,line,cam,angle,teeth_a,teeth_b,pressure
+K1,cam,B1,P1,B2,P3,,C1,,20,20,20
+
+# Driver: rotary (angle of a line, from +x or from line_ref) or linear (distance between two points). Speed in rpm or length/s. return = 1: a limited sweep runs there and back.
+[driver]
+key,value
+type,rotary
+line,L1
+line_ref,
+point_a,
+point_b,
+steps,360
+speed,300
+return,0
+
+[motion]
+key,value
+trace,
+
+# Loads: force (fx, fy at a point of a body), torque (on a body), spring (between two points: k, free length, preload tension), torsion (at a joint: k per angle unit, free angle, preload torque). Blank free = free at the drawn pose. opposes = 1: a force or torque that always resists the motion (its sign follows the direction of travel).
+[loads]
+id,type,body,point,point_b,joint,fx,fy,frame,torque,k,free,preload,opposes
+S1,spring,,P4,P7,,0,0,global,0,2,120,0,0
+
+# mode: static (applied loads only) or kinetostatic (plus inertia at the driver speed). gravity acts in -y. solve_for: input (find the input torque the loads need) or output (given the input torque, find the output at output_joint). input_point / output_point express those torques as forces at a point.
+[analysis]
+key,value
+mode,kinetostatic
+gravity,0
+solve_for,input
+input,0
+output_joint,
+input_point,
+output_point,
+
+# Cams: lengths and forces in project units; angles in degrees. follower: translating_roller, translating_flat, oscillating_roller, oscillating_flat (pivot on +x at pivot_distance). Oscillating followers: mass is the arm inertia about the pivot, spring_rate per radian, preload and load are torques.
+[cams]
+id,name,base_radius,rotation,speed,follower,roller_radius,offset,pivot_distance,arm_length,pressure_limit,mass,spring_rate,preload,load,step
+C1,Lift cam,40,ccw,300,translating_roller,10,0,100,80,30,0,0,0,0,0.5
+
+# Each cam's motion program, in order from 0°: rise / return / dwell, duration in degrees, lift in length (or degrees for oscillating followers). Durations must add up to 360°.
+[cam_segments]
+cam,id,type,duration,lift,law
+C1,S1,dwell,60,0,poly_345
+C1,S2,rise,120,25,poly_345
+C1,S3,dwell,60,0,poly_345
+C1,S4,return,120,25,poly_345

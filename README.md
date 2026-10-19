@@ -36,10 +36,12 @@ Phases 0–4 are complete:
   - translating and oscillating, roller and flat-faced followers;
   - SVAJ, pressure angle, curvature and undercut, contact force and jump, cam torque;
   - an animated cam, and profile export as CSV, DXF and SVG.
-- **Examples:** four-bar, slider-crank, quick-return, hydraulic boom and a dwell-rise-dwell cam.
+  - several cams per project.
+- **Cam and gear joints:** mount a cam on a link with a roller on another (one-sided contact, with a lift-off warning), and add external gear pairs and racks by tooth count. Tooth, separating and contact forces appear in the force results.
+- **Examples:** four-bar, slider-crank, quick-return, hydraulic boom, a dwell-rise-dwell cam, a cam-driven slide, and a gear pair with a rack.
 - **Files:** one CSV project file with undo/redo and autosave.
 
-Next: extensions such as linkage synthesis and cam-follower joints inside linkages. See the [design document](docs/DESIGN.md) for the architecture, solver math and roadmap, and the [file format reference](docs/FILE_FORMAT.md) for the CSV layout.
+Next: extensions such as linkage synthesis. See the [design document](docs/DESIGN.md) for the architecture, solver math and roadmap, and the [file format reference](docs/FILE_FORMAT.md) for the CSV layout.
 
 ## Development
 

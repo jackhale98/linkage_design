@@ -84,6 +84,18 @@ export function forceQuantities(
     out.push(q('mag', 'force', u.force), q('fx', 'Fx', u.force), q('fy', 'Fy', u.force));
     if (j.type === 'slider') out.push(q('moment', 'moment', `${u.force}·${u.length}`));
   }
+  for (const pr of data.sys.model.pairs) {
+    const g = `${pr.type === 'cam' ? 'Cam joint' : pr.type === 'gear' ? 'Gear mesh' : 'Rack and pinion'} ${pr.id}`;
+    const q = (w: string, short: string): Quantity => ({
+      key: `m:${pr.id}:${w}`,
+      label: `${pr.id} ${short}`,
+      short,
+      unit: u.force,
+      group: g,
+    });
+    if (pr.type === 'cam') out.push(q('force', 'contact force'));
+    else out.push(q('force', 'tooth force'), q('normal', 'mesh force'), q('separating', 'separating force'));
+  }
   for (const l of forces.loads) {
     if (l.type === 'spring')
       out.push({
@@ -116,6 +128,10 @@ export function forceSeries(result: ForceResult, key: string): number[] {
       return id === 'effort' ? f.driver : f.power;
     }
     if (kind === 's') return f.springs.get(id) ?? NaN;
+    if (kind === 'm') {
+      const pf = f.pairs.get(id);
+      return pf ? (what === 'normal' ? pf.normal : what === 'separating' ? pf.separating : pf.force) : NaN;
+    }
     const j = f.joints.get(id);
     if (!j) return NaN;
     if (what === 'fx') return j.fx;
@@ -130,6 +146,15 @@ export interface ForceSummary {
   effort: { min: number; max: number; rms: number; atMax: number; atBack: boolean };
   power: { peak: number; mean: number };
   joints: { id: string; point: string; max: number; at: number; atBack: boolean }[];
+  /** Cam and gear joints: force range (tooth force for gears, contact force for cams) and where it peaks. */
+  pairs: {
+    id: string;
+    kind: 'cam' | 'gear' | 'rack';
+    min: number;
+    max: number;
+    at: number;
+    atBack: boolean;
+  }[];
   /** Solving for the output: its range, the mechanical advantage range, and the forces at points. */
   output: {
     min: number;
@@ -168,6 +193,18 @@ export function summarizeForces(data: MotionData, result: ForceResult): ForceSum
     },
     power: { peak: Math.max(...power.map(Math.abs)), mean: power.reduce((s, v) => s + v, 0) / power.length },
     joints,
+    pairs: data.sys.model.pairs.map((pr) => {
+      const v = forceSeries(result, `m:${pr.id}:force`);
+      const k = v.reduce((best, x, i) => (Math.abs(x) > Math.abs(v[best]!) ? i : best), 0);
+      return {
+        id: pr.id,
+        kind: pr.type,
+        min: Math.min(...v),
+        max: Math.max(...v),
+        at: inputs[k]!,
+        atBack: frames[k]!.dir === -1,
+      };
+    }),
     output: Number.isFinite(result.frames[0]!.output) ? outputSummary(result, inputs) : null,
     inputForce: range(forceSeries(result, 'd:inF')),
     outputForce: range(forceSeries(result, 'd:outF')),

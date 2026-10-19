@@ -57,7 +57,7 @@ export interface ForceFrame {
   /** The input and output as forces at the chosen points (at right angles to the radius); NaN if unset. */
   inputForce: number;
   outputForce: number;
-  /** Virtual-work balance residual, relative to the largest power term (should be ~0). */
+  /** Virtual-work balance residual, relative to the largest power term over the sweep (should be ~0). */
   balance: number;
 }
 
@@ -195,6 +195,7 @@ export function solveForces(
   }
 
   const loadScale: number[] = [];
+  const powerScale: number[] = [];
   // Solving for the output: which joint, and what it holds.
   let output: Output | null = null;
   if (forces.solveFor === 'output') {
@@ -250,7 +251,11 @@ export function solveForces(
   // loads); report them as exact zeros so they don't show as tiny forces.
   const tol = 1e-9 * Math.max(0, ...loadScale);
   const clean = (v: number, t: number) => (Math.abs(v) <= t ? 0 : v);
+  // The balance is relative to the largest power anywhere in the sweep, so a
+  // still position (a dwell, a dead point) doesn't divide round-off by round-off.
+  const maxPower = Math.max(0, ...powerScale);
   out.forEach((fr, idx) => {
+    fr.balance = maxPower > 0 ? fr.balance / maxPower : 0;
     for (const r of fr.joints.values()) {
       r.fx = clean(r.fx, tol);
       r.fy = clean(r.fy, tol);
@@ -538,7 +543,9 @@ export function solveForces(
       effortPower = hold * speed;
       scale = Math.max(scale, Math.abs(effortPower));
     }
-    const balance = scale > 0 ? Math.abs(loadPower + effortPower) / scale : 0;
+    // Absolute residual and this frame's power scale; normalised over the sweep below.
+    powerScale.push(scale);
+    const balance = Math.abs(loadPower + effortPower);
     return {
       joints,
       driver,

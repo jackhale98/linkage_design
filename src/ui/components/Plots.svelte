@@ -10,7 +10,7 @@
   const data = $derived(result.data);
   // Force quantities (driver effort, joint forces, springs) come after the kinematic ones.
   const qs = $derived([...motionUi.forceQuantities, ...motionUi.quantities]);
-  const isForce = (key: string) => /^[dfs]:/.test(key);
+  const isForce = (key: string) => /^[dfsm]:/.test(key);
   const groups = $derived(
     [...new Set(qs.map((q) => q.group))].map((g) => ({ name: g, items: qs.filter((q) => q.group === g) })),
   );

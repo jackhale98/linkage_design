@@ -146,7 +146,7 @@ Joints are **derived from the sketch**, and this section records them so they ke
 
 - a **revolute** wherever two bodies, or a body and ground, share a point;
 - a **pin-in-slot** wherever a `point_on_line` constraint ties a point of one body to a line of another;
-- a **revolute** instead of a pin-in-slot when the sketch also fixes where that point sits along the line: a `distance` from it to a point of the line's link, or a `midpoint` constraint. The point can't slide, so it is a pivot partway along the link.
+- a **revolute** instead of a pin-in-slot when the line is on a moving link and the sketch also fixes where that point sits along the line: a `distance` from it to a point of the line's link, or a `midpoint` constraint. The point can't slide, so it is a pivot partway along the link. On a ground line the point stays a slider, since a dimension there only places the drawing.
 
 | Column | Meaning |
 |---|---|
@@ -155,6 +155,27 @@ Joints are **derived from the sketch**, and this section records them so they ke
 | `point` | The pin point |
 | `line` | The slot line (slots only) |
 | `body_a`, `body_b` | Joined bodies (`ground` for the frame); for slots, `body_a` carries the line |
+
+### `[pairs]`
+
+Higher pairs: cam-follower joints, gear pairs and racks. Left out of the file when there are none.
+
+| Column | Meaning |
+|---|---|
+| `id` | Unique ID: `K1` for cam joints, `G1` for gear pairs, `R1` for racks |
+| `type` | `cam`, `gear` or `rack` |
+| `body_a`, `point_a` | Cam: the link carrying the cam and the cam centre. Gear: gear A and its centre. Rack: the pinion and its centre. |
+| `body_b`, `point_b` | Cam: the follower link and the roller centre. Gear: gear B and its centre. Rack: the rack link (no point). |
+| `line` | Rack: the pitch line, a line of the rack link |
+| `cam` | Cam joints: the cam's ID in `[cams]` |
+| `angle` | Cam joints: how far the cam frame is turned from the +x axis in the drawn position, degrees. Blank = fitted so the roller touches the cam. |
+| `teeth_a`, `teeth_b` | Tooth counts (default 20, at least 3). Racks use `teeth_a` for the pinion. |
+| `pressure` | Pressure angle, degrees (default 20, 0–45) |
+
+- **Cam joints** are one-sided: the roller stays on the cam's pitch curve (roller and knife-edge designs only). If the contact force would go below zero the analysis says where the roller would lift off.
+- **Gear pairs** are external gears. The pitch radii come from the drawn centre distance split in the tooth ratio. Both centres must be pivots on the same link (ground or a planet arm).
+- **Racks** roll the pinion along the pitch line; the pinion must turn on a ground pivot. The pitch radius is the drawn distance from the pinion centre to the pitch line.
+- Tooth forces act along the pressure line, so the gear pivots also carry the separating force F<sub>t</sub>·tan α.
 
 ### `[driver]` (key, value)
 
@@ -206,12 +227,13 @@ Applied loads for the force analysis.
 | `output_joint` | The output, when `solve_for` is `output`: a pivot to ground (output torque on the link turning about it) or a pin or block in a ground slot (output force along the slot) |
 | `input_point`, `output_point` | Optional points on the driven and output links. The input and output torques are also reported as forces there, at right angles to the line from the pivot. |
 
-### `[cam]` (key, value)
+### `[cams]`
 
-Cam settings. Left out of the file while the cam is untouched. Lengths and forces use the project units; cam angles are always in degrees.
+One row per cam. Left out of the file when the project has no cams. Lengths and forces use the project units; cam angles are always in degrees. Files from before several cams were supported have a `[cam]` key/value section with the same keys; it opens as cam `C1`.
 
-| Key | Meaning |
+| Column | Meaning |
 |---|---|
+| `id`, `name` | Unique ID (e.g. `C1`) and a display name |
 | `base_radius` | Base circle radius: the smallest radius of the cam surface |
 | `rotation` | `ccw` or `cw` |
 | `speed` | rpm |
@@ -229,11 +251,12 @@ Cam settings. Left out of the file while the cam is untouched. Lengths and force
 
 ### `[cam_segments]`
 
-The motion program, in order from 0°. Durations must add up to 360°, and rises and returns must balance.
+The motion programs, each cam's segments in order from 0°. Durations must add up to 360°, and rises and returns must balance.
 
 | Column | Meaning |
 |---|---|
-| `id` | Unique ID, e.g. `S1` |
+| `cam` | The cam the segment belongs to |
+| `id` | Unique within its cam, e.g. `S1` |
 | `type` | `rise`, `return` or `dwell` |
 | `duration` | Cam angle the segment spans, degrees |
 | `lift` | Rise or return: length (translating) or degrees (oscillating) |
