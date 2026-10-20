@@ -21,7 +21,7 @@
 import { solveDamped, solveSquare, RowSpace } from '../math/linalg';
 import type { MotionResult } from '../mechanism/motion';
 import { inputValue, type CycleFrame } from '../mechanism/analysis';
-import type { Attach } from '../mechanism/kinematics';
+import type { Attach, KinematicSystem } from '../mechanism/kinematics';
 import { GROUND, type Body } from '../mechanism/types';
 import { inertiaFactor, weightPerMass, type ForceUnits, type ForcesData } from './types';
 
@@ -288,6 +288,7 @@ export function solveForces(
       );
     }
   }
+  issues.push(...driveIssues(sys, bodies, forces, units, solveOutput, out));
   return { frames: out, indeterminate, issues };
 
   function frameForces(f: CycleFrame): ForceFrame {
@@ -559,4 +560,52 @@ export function solveForces(
       balance,
     };
   }
+}
+
+/**
+ * When solving for the output, the input torque is applied to the driven
+ * link for you; a torque load there as well is usually the input entered
+ * twice. Say so, and say plainly when nothing loads the mechanism at all.
+ */
+function driveIssues(
+  sys: KinematicSystem,
+  bodies: Body[],
+  forces: ForcesData,
+  units: ForceUnits,
+  solveOutput: boolean,
+  out: ForceFrame[],
+): string[] {
+  const d = sys.driver!;
+  const driven = d.type === 'rotary' ? d.body : '';
+  const name = (id: string) => bodies.find((b) => b.id === id)?.name || id;
+  const fmt = (v: number) => `${Number(v.toPrecision(6))} ${units.force}·${units.length}`;
+  const onDriven =
+    solveOutput && driven
+      ? forces.loads.filter((l) => l.type === 'torque' && l.body === driven && !l.oppose)
+      : [];
+  const ids = onDriven.map((l) => l.id).join(', ');
+  const many = onDriven.length > 1;
+  const idle = out.every(
+    (fr) =>
+      (solveOutput ? fr.output : fr.driver) === 0 &&
+      [...fr.joints.values()].every((j) => j.fx === 0 && j.fy === 0),
+  );
+  if (idle) {
+    if (!solveOutput)
+      return [
+        'Nothing loads the mechanism, so the input and every joint force are zero. Add a force, torque or spring, or turn on gravity with link masses.',
+      ];
+    const net = forces.input + onDriven.reduce((sum, l) => sum + l.torque, 0);
+    if (onDriven.length && Math.abs(net) <= 1e-9 * Math.abs(forces.input))
+      return [
+        `The input torque (${fmt(forces.input)}) and ${ids} on ${name(driven)}, the driven link, cancel, so nothing drives the mechanism and every force is zero. When solving for the output, the input torque is applied to the driven link for you: delete ${ids}.`,
+      ];
+    if (forces.input === 0)
+      return ['The input is zero, so nothing drives the mechanism and every force is zero. Set the input.'];
+    return ['Nothing loads the mechanism, so every force is zero.'];
+  }
+  if (!onDriven.length) return [];
+  return [
+    `${ids} ${many ? 'are torques' : 'is a torque'} on ${name(driven)}, the driven link, so ${many ? 'they add' : 'it adds'} to the ${fmt(forces.input)} input. If ${many ? 'they are' : 'it is'} meant to be the input, delete ${many ? 'them' : 'it'}: the input torque is applied for you.`,
+  ];
 }

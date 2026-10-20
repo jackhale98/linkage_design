@@ -170,6 +170,39 @@ describe('known input torque: solving for the output', () => {
     }
   });
 
+  it('says when a torque load on the driven link cancels the input', () => {
+    const p = fourBarProject();
+    const crank = p.mechanism.bodies.find((b) => b.lines.includes('L2'))!;
+    crank.name = 'Crank';
+    const pivot = p.mechanism.joints.find((j) => j.point === 'P2' && j.type === 'revolute')!;
+    p.forces = {
+      ...p.forces,
+      mode: 'static',
+      solveFor: 'output',
+      input: 1000,
+      outputJoint: pivot.id,
+      loads: [load('T1', 'torque', { body: crank.id, torque: -1000 })],
+    };
+    const { f } = run(p);
+    for (const ff of f.frames) expect(ff.output).toBe(0);
+    expect(f.issues).toEqual([
+      'The input torque (1000 N·mm) and T1 on Crank, the driven link, cancel, so nothing drives the mechanism and every force is zero. When solving for the output, the input torque is applied to the driven link for you: delete T1.',
+    ]);
+    // Not cancelling: still a note that the load adds to the input.
+    p.forces.loads[0]!.torque = 500;
+    expect(run(p).f.issues).toEqual([
+      'T1 is a torque on Crank, the driven link, so it adds to the 1000 N·mm input. If it is meant to be the input, delete it: the input torque is applied for you.',
+    ]);
+  });
+
+  it('says when nothing loads the mechanism', () => {
+    const p = fourBarProject();
+    p.forces = { ...p.forces, mode: 'static', loads: [] };
+    expect(run(p).f.issues).toEqual([
+      'Nothing loads the mechanism, so the input and every joint force are zero. Add a force, torque or spring, or turn on gravity with link masses.',
+    ]);
+  });
+
   it('reports zero joint forces, not round-off, for a torque on the driven link', () => {
     const p = fourBarProject();
     const crank = p.mechanism.bodies.find((b) => b.lines.includes('L2'))!;
