@@ -315,8 +315,20 @@ export function buildModel(sketch: Sketch, mech: MechanismData, cams: CamData[] 
     // On a moving link, a dimensioned point is a pivot partway along it. On a
     // ground slide, a dimension only sets where the slider is drawn.
     const pinned = lb !== GROUND && located(p, l, lb);
-    for (const pb of owners) {
-      if (pb === lb) continue;
+    // Links pinned together at p ride in the slot once (more would be
+    // redundant): prefer the one with another point on the line, the block.
+    const others = owners.filter((b) => b !== lb);
+    const onLine = (b: string) =>
+      sketch.constraints.some(
+        (k) =>
+          k.type === 'point_on_line' &&
+          !k.reference &&
+          k.refs[1] === l &&
+          k.refs[0] !== p &&
+          pointsOfBody(b).has(k.refs[0]!),
+      );
+    const rider = owners.includes(lb) ? undefined : (others.find(onLine) ?? others[0]);
+    for (const pb of rider ? [rider] : []) {
       if (pinned) {
         joints.push({
           id: idFor(jointKey(p, '', lb, pb)),

@@ -50,7 +50,7 @@ describe('example projects', () => {
         angleScale(p),
       );
       expect(f.issues).toEqual([]);
-      expect(f.frames.length).toBe(reachable(m.res!).length);
+      expect(f.frames.length).toBe(m.data!.frames.length);
       expect(Math.max(...f.frames.map((x) => x.balance))).toBeLessThan(1e-8);
     });
   }

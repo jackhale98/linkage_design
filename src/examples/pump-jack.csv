@@ -1,0 +1,86 @@
+﻿LinkageDesign,1
+# Linkage Design project file - https://github.com/jackhale98/linkage_design
+
+[project]
+key,value
+name,Pump jack
+length_unit,mm
+force_unit,N
+angle_unit,deg
+notes,"An oil-well beam pump: the crank drives the walking beam through the pitman, and the horsehead at H lifts the 8 kN rod and fluid load. A 600 kg counterweight on the crank arm balances most of the load, so the motor drives through part of each stroke and holds back (brakes) through the rest. Plot the driver torque to see both, then set the crank mass to zero and compare."
+created,2026-10-19T12:00:00.000Z
+modified,2026-10-19T12:00:00.000Z
+
+# Sketch points. fixed = anchored in place.
+[points]
+id,x,y,fixed,label
+P1,0,300,1,Samson post
+P2,200,0,1,O2
+P3,-300,300,0,H
+P4,200,300,0,B
+P5,200,60,0,A
+
+# Lines between points. construction = helper geometry.
+[lines]
+id,p1,p2,construction
+L1,P3,P1,0
+L2,P1,P4,0
+L3,P5,P4,0
+L4,P2,P5,0
+
+# Constraints and dimensions. Values use the project units; angles are counterclockwise from line a to line b.
+[constraints]
+id,type,a,b,c,value,reference,label_dx,label_dy
+C1,distance,L4,,,60,0,12,0
+C2,angle,L4,,,90,0,14,-10
+C3,distance,L3,,,240,0,14,0
+C4,distance,L2,,,200,0,0,12
+C5,distance,L1,,,300,0,0,12
+C6,parallel,L1,L2,,,0,,
+
+# Rigid bodies (links), each a group of sketch lines. ground = fixed to the frame.
+[bodies]
+id,name,lines,ground,color,mass,com_x,com_y,inertia
+B1,Walking beam,L1 L2,0,#2a78d6,120,-50,300,2500000
+B3,Pitman,L3,0,#1baf7a,20,200,180,100000
+B4,Crank and counterweight,L4,0,#eda100,600,200,100,1500000
+
+# Joints, derived from the sketch. type may be changed between pin_in_slot and slider.
+[joints]
+id,type,point,line,body_a,body_b
+J1,revolute,P1,,ground,B1
+J6,revolute,P4,,B1,B3
+J4,revolute,P5,,B3,B4
+J5,revolute,P2,,ground,B4
+
+# Driver: rotary (angle of a line, from +x or from line_ref) or linear (distance between two points). Speed in rpm or length/s. return = 1: a limited sweep runs there and back.
+[driver]
+key,value
+type,rotary
+line,L4
+line_ref,
+point_a,
+point_b,
+steps,360
+speed,8
+return,0
+
+[motion]
+key,value
+trace,P3
+
+# Loads: force (fx, fy at a point of a body), torque (on a body), spring (between two points: k, free length, preload tension), torsion (at a joint: k per angle unit, free angle, preload torque). Blank free = free at the drawn pose. opposes = 1: a force or torque that always resists the motion (its sign follows the direction of travel).
+[loads]
+id,type,body,point,point_b,joint,fx,fy,frame,torque,k,free,preload,opposes
+F1,force,B1,P3,,,0,-8000,global,0,0,,0,0
+
+# mode: static (applied loads only) or kinetostatic (plus inertia at the driver speed). gravity acts in -y. solve_for: input (find the input torque the loads need) or output (given the input torque, find the output at output_joint). input_point / output_point express those torques as forces at a point.
+[analysis]
+key,value
+mode,kinetostatic
+gravity,1
+solve_for,input
+input,0
+output_joint,
+input_point,
+output_point,

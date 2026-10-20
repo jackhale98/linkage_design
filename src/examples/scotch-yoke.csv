@@ -1,0 +1,91 @@
+﻿LinkageDesign,1
+# Linkage Design project file - https://github.com/jackhale98/linkage_design
+
+[project]
+key,value
+name,Scotch yoke
+length_unit,mm
+force_unit,N
+angle_unit,deg
+notes,"The crank pin A slides in the vertical slot of the yoke, and the yoke slides in a horizontal guide. The yoke moves in pure simple harmonic motion: x = 40 cos θ. At 600 rpm the yoke inertia dominates the pin force; the 300 N load at R resists the motion both ways, like a pump."
+created,2026-10-19T12:00:00.000Z
+modified,2026-10-19T12:00:00.000Z
+
+# Sketch points. fixed = anchored in place.
+[points]
+id,x,y,fixed,label
+P1,0,0,1,O
+P2,20,34.6410161514,0,A
+P3,20,-60,0,
+P4,20,60,0,
+P5,20,0,0,
+P6,140,0,0,R
+P7,100,0,1,
+P8,220,0,1,
+
+# Lines between points. construction = helper geometry.
+[lines]
+id,p1,p2,construction
+L1,P1,P2,0
+L2,P3,P4,0
+L3,P5,P6,0
+L4,P7,P8,1
+
+# Constraints and dimensions. Values use the project units; angles are counterclockwise from line a to line b.
+[constraints]
+id,type,a,b,c,value,reference,label_dx,label_dy
+C1,distance,L1,,,40,0,-14,4
+C2,angle,L1,,,60,0,16,6
+C3,vertical,L2,,,,0,,
+C4,distance,L2,,,120,0,-14,0
+C5,midpoint,P5,L2,,,0,,
+C6,point_on_line,P5,L4,,,0,,
+C7,point_on_line,P6,L4,,,0,,
+C8,distance,L3,,,120,0,0,12
+C9,point_on_line,P2,L2,,,0,,
+
+# Rigid bodies (links), each a group of sketch lines. ground = fixed to the frame.
+[bodies]
+id,name,lines,ground,color,mass,com_x,com_y,inertia
+B1,Crank,L1,0,#2a78d6,0.2,10,17.32,30
+B2,Yoke,L2 L3,0,#eb6834,1.2,60,0,3000
+
+# Joints, derived from the sketch. type may be changed between pin_in_slot and slider.
+[joints]
+id,type,point,line,body_a,body_b
+J1,revolute,P1,,ground,B1
+J5,pin_in_slot,P5,L4,ground,B2
+J6,pin_in_slot,P6,L4,ground,B2
+J4,pin_in_slot,P2,L2,B2,B1
+
+# Driver: rotary (angle of a line, from +x or from line_ref) or linear (distance between two points). Speed in rpm or length/s. return = 1: a limited sweep runs there and back.
+[driver]
+key,value
+type,rotary
+line,L1
+line_ref,
+point_a,
+point_b,
+steps,360
+speed,600
+return,0
+
+[motion]
+key,value
+trace,P6
+
+# Loads: force (fx, fy at a point of a body), torque (on a body), spring (between two points: k, free length, preload tension), torsion (at a joint: k per angle unit, free angle, preload torque). Blank free = free at the drawn pose. opposes = 1: a force or torque that always resists the motion (its sign follows the direction of travel).
+[loads]
+id,type,body,point,point_b,joint,fx,fy,frame,torque,k,free,preload,opposes
+F1,force,B2,P6,,,300,0,global,0,0,,0,1
+
+# mode: static (applied loads only) or kinetostatic (plus inertia at the driver speed). gravity acts in -y. solve_for: input (find the input torque the loads need) or output (given the input torque, find the output at output_joint). input_point / output_point express those torques as forces at a point.
+[analysis]
+key,value
+mode,kinetostatic
+gravity,0
+solve_for,input
+input,0
+output_joint,
+input_point,
+output_point,

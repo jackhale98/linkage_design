@@ -145,7 +145,7 @@ When a project is opened or edited, the bodies are synced with the sketch:
 Joints are **derived from the sketch**, and this section records them so they keep stable IDs:
 
 - a **revolute** wherever two bodies, or a body and ground, share a point;
-- a **pin-in-slot** wherever a `point_on_line` constraint ties a point of one body to a line of another;
+- a **pin-in-slot** wherever a `point_on_line` constraint ties a point of one body to a line of another. When several links are pinned together at that point, only one of them rides in the slot (the one with another point on the same line, such as a piston block), since more would be redundant;
 - a **revolute** instead of a pin-in-slot when the line is on a moving link and the sketch also fixes where that point sits along the line: a `distance` from it to a point of the line's link, or a `midpoint` constraint. The point can't slide, so it is a pivot partway along the link. On a ground line the point stays a slider, since a dimension there only places the drawing.
 
 | Column | Meaning |

@@ -4,7 +4,7 @@
   import { store } from '../state/project.svelte';
   import { ui, WORKSPACES } from '../state/ui.svelte';
 
-  import { EXAMPLES } from '../../examples';
+  import { EXAMPLES, EXAMPLE_GROUPS } from '../../examples';
 
   let {
     onNew,
@@ -84,18 +84,21 @@
         <Icon name="examples" /><span class="label">Examples</span>
       </summary>
       <div class="menu-list" role="menu">
-        {#each EXAMPLES as ex (ex.file)}
-          <button
-            role="menuitem"
-            class="menu-item"
-            onclick={() => {
-              menu.open = false;
-              onExample(ex.file);
-            }}
-          >
-            <strong>{ex.name}</strong>
-            <span class="muted">{ex.description}</span>
-          </button>
+        {#each EXAMPLE_GROUPS as group (group)}
+          <div class="menu-group" role="presentation">{group}</div>
+          {#each EXAMPLES.filter((e) => e.group === group) as ex (ex.file)}
+            <button
+              role="menuitem"
+              class="menu-item"
+              onclick={() => {
+                menu.open = false;
+                onExample(ex.file);
+              }}
+            >
+              <strong>{ex.name}</strong>
+              <span class="muted">{ex.description}</span>
+            </button>
+          {/each}
         {/each}
       </div>
     </details>
@@ -257,12 +260,29 @@
     right: 0;
     z-index: 40;
     display: grid;
-    width: 300px;
+    width: min(340px, calc(100vw - 32px));
+    max-height: min(70vh, 640px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: var(--space-1);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--surface);
     box-shadow: var(--shadow-lg);
+  }
+
+  .menu-group {
+    padding: var(--space-2) var(--space-3) var(--space-1);
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .menu-group:not(:first-child) {
+    margin-top: var(--space-1);
+    border-top: 1px solid var(--border);
   }
 
   .menu-item {

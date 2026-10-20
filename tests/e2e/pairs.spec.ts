@@ -33,7 +33,7 @@ test('gear pair and rack: meshing gears, tooth forces in the results', async ({ 
   );
   await page.getByRole('tab', { name: 'Forces' }).click();
   await page.getByRole('tab', { name: 'Results' }).click();
-  await expect(page.getByText('Cams and gears')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Cams and gears' })).toBeVisible();
   await expect(page.locator('tr', { hasText: 'gear mesh, tooth force' })).toContainText('200 N');
 });
 
@@ -62,4 +62,26 @@ test('a cam joint needs a designed cam first', async ({ page }) => {
   await page.getByRole('tab', { name: 'Mechanism' }).click();
   await panel(page).getByRole('button', { name: '+ Cam' }).click();
   await expect(page.getByText('Design a cam in the Cam workspace first')).toBeVisible();
+});
+
+test('every example loads and animates without errors', async ({ page }) => {
+  await page.getByRole('tab', { name: 'Motion' }).click();
+  await page.locator('summary', { hasText: 'Examples' }).click();
+  const items = page.getByRole('menuitem');
+  const n = await items.count();
+  expect(n).toBe(16);
+  await expect(page.getByRole('menu').getByText('Machines and forces')).toBeVisible();
+  await page.locator('summary', { hasText: 'Examples' }).click();
+  for (let k = 0; k < n; k++) {
+    await page.locator('summary', { hasText: 'Examples' }).click();
+    const item = page.getByRole('menuitem').nth(k);
+    const name = (await item.locator('strong').innerText()).trim();
+    await item.click();
+    await expect(page.getByText(`Loaded “${name}”`).first()).toBeVisible();
+    if (name === 'Dwell-rise-dwell cam') {
+      await page.getByRole('tab', { name: 'Motion' }).click();
+      continue;
+    }
+    await expect(page.getByTestId('mechanism-status')).not.toHaveText(/Locked|Can't|error/i);
+  }
 });

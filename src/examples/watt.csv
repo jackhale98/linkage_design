@@ -1,0 +1,88 @@
+﻿LinkageDesign,1
+# Linkage Design project file - https://github.com/jackhale98/linkage_design
+
+[project]
+key,value
+name,Watt's linkage
+length_unit,mm
+force_unit,N
+angle_unit,deg
+notes,"James Watt's straight-line linkage: two equal arms pivoted at opposite ends, joined by a short link. The centre M of the link moves on a nearly straight vertical line through the middle of its travel (it traces a figure of eight overall). Used to locate rear axles sideways; the 500 N side load at M shows the force each arm carries."
+created,2026-10-19T12:00:00.000Z
+modified,2026-10-19T12:00:00.000Z
+
+# Sketch points. fixed = anchored in place.
+[points]
+id,x,y,fixed,label
+P1,0,0,1,O1
+P2,200,100,1,O2
+P3,100,0,0,A
+P4,100,50,0,M
+P5,100,100,0,B
+
+# Lines between points. construction = helper geometry.
+[lines]
+id,p1,p2,construction
+L1,P1,P3,0
+L2,P3,P4,0
+L3,P4,P5,0
+L4,P5,P2,0
+
+# Constraints and dimensions. Values use the project units; angles are counterclockwise from line a to line b.
+[constraints]
+id,type,a,b,c,value,reference,label_dx,label_dy
+C1,distance,L1,,,100,0,0,-12
+C2,angle,L1,,,0,0,30,10
+C3,distance,L2,,,50,0,-12,0
+C4,distance,L3,,,50,0,-12,0
+C5,parallel,L2,L3,,,0,,
+C6,distance,L4,,,100,0,0,12
+
+# Rigid bodies (links), each a group of sketch lines. ground = fixed to the frame.
+[bodies]
+id,name,lines,ground,color,mass,com_x,com_y,inertia
+B1,Lower arm,L1,0,#2a78d6,0.2,50,0,166.667
+B2,Centre link,L2 L3,0,#eb6834,0.2,100,50,166.667
+B4,Upper arm,L4,0,#eda100,0.2,150,100,166.667
+
+# Joints, derived from the sketch. type may be changed between pin_in_slot and slider.
+[joints]
+id,type,point,line,body_a,body_b
+J1,revolute,P1,,ground,B1
+J2,revolute,P3,,B1,B2
+J6,revolute,P5,,B2,B4
+J5,revolute,P2,,ground,B4
+
+# Driver: rotary (angle of a line, from +x or from line_ref) or linear (distance between two points). Speed in rpm or length/s. return = 1: a limited sweep runs there and back.
+[driver]
+key,value
+type,rotary
+line,L1
+line_ref,
+point_a,
+point_b,
+start,-25
+end,25
+steps,100
+speed,30
+return,1
+
+[motion]
+key,value
+trace,P4
+
+# Loads: force (fx, fy at a point of a body), torque (on a body), spring (between two points: k, free length, preload tension), torsion (at a joint: k per angle unit, free angle, preload torque). Blank free = free at the drawn pose. opposes = 1: a force or torque that always resists the motion (its sign follows the direction of travel).
+[loads]
+id,type,body,point,point_b,joint,fx,fy,frame,torque,k,free,preload,opposes
+F1,force,B2,P4,,,500,0,global,0,0,,0,0
+
+# mode: static (applied loads only) or kinetostatic (plus inertia at the driver speed). gravity acts in -y. solve_for: input (find the input torque the loads need) or output (given the input torque, find the output at output_joint). input_point / output_point express those torques as forces at a point.
+[analysis]
+key,value
+mode,static
+gravity,0
+solve_for,input
+input,0
+output_joint,
+input_point,
+output_point,

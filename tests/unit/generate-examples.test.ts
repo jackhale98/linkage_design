@@ -9,6 +9,7 @@ import type { Sketch } from '../../src/core/sketch/types';
 import { barMassProperties } from '../../src/core/forces/solve';
 import { newLoad, type Load } from '../../src/core/forces/types';
 import { emptyCam } from '../../src/core/cam/types';
+import { camPitchCurve } from '../../src/core/cam/analysis';
 import type { PairRecord } from '../../src/core/mechanism/types';
 
 const ctx = { angleScale: Math.PI / 180 };
@@ -461,6 +462,617 @@ function gears() {
   );
 }
 
+/** Add points at the given positions and return their IDs. */
+function pts(s: Sketch, ...xy: [number, number][]): string[] {
+  return xy.map(([x, y]) => addPoint(s, x, y));
+}
+
+function hoekens() {
+  const p = newProject(DATE);
+  p.meta.name = 'Hoekens straight-line linkage';
+  p.meta.notes =
+    'A crank-rocker with proportions 1 : 2 : 2.5 : 2.5 (crank, ground, coupler, rocker). The coupler extends to P, twice as far from A as B is; P runs along a nearly straight line for about half of each turn, then lifts and returns. It is the leg of many walking machines: try the Forces view to see the crank torque as the foot carries the load.';
+  const s = p.sketch;
+  const [o2, o4, a, b, f] = pts(s, [0, 0], [80, 0], [0, 40], [80, 100], [160, 160]) as [
+    string,
+    string,
+    string,
+    string,
+    string,
+  ];
+  fix(s, o2);
+  label(s, { [o2]: 'O2', [o4]: 'O4', [a]: 'A', [b]: 'B', [f]: 'P' });
+  const ground = addLine(s, o2, o4, true);
+  const crank = addLine(s, o2, a);
+  const coupler = addLine(s, a, b);
+  const extension = addLine(s, b, f);
+  const rocker = addLine(s, b, o4);
+  add(
+    s,
+    { type: 'horizontal', refs: [ground] },
+    { type: 'distance', refs: [ground], value: 80, labelDx: 0, labelDy: -12 },
+    { type: 'distance', refs: [crank], value: 40, labelDx: -12, labelDy: 0 },
+    { type: 'angle', refs: [crank], value: 90, labelDx: 14, labelDy: 10 },
+    { type: 'distance', refs: [coupler], value: 100, labelDx: -10, labelDy: 10 },
+    { type: 'distance', refs: [extension], value: 100, labelDx: -10, labelDy: 10 },
+    { type: 'parallel', refs: [coupler, extension] },
+    { type: 'distance', refs: [rocker], value: 100, labelDx: 12, labelDy: 0 },
+  );
+  p.mechanism.driver = { ...p.mechanism.driver, type: 'rotary', line: crank, steps: 360, speed: 60 };
+  p.mechanism.motion.trace = [f];
+  save(
+    'hoekens.csv',
+    p,
+    {
+      [crank]: { name: 'Crank', lines: [] },
+      [coupler]: { name: 'Coupler', lines: [extension] },
+      [rocker]: { name: 'Rocker', lines: [] },
+    },
+    (q) => {
+      bars(q, 0.001);
+      q.forces = {
+        ...q.forces,
+        mode: 'kinetostatic',
+        gravity: true,
+        loads: [loadOf('F1', 'force', { body: bodyWith(q, coupler).id, point: f, fy: -50 })],
+      };
+    },
+  );
+}
+
+function watt() {
+  const p = newProject(DATE);
+  p.meta.name = "Watt's linkage";
+  p.meta.notes =
+    "James Watt's straight-line linkage: two equal arms pivoted at opposite ends, joined by a short link. The centre M of the link moves on a nearly straight vertical line through the middle of its travel (it traces a figure of eight overall). Used to locate rear axles sideways; the 500 N side load at M shows the force each arm carries.";
+  const s = p.sketch;
+  const [o1, o2, a, m, b] = pts(s, [0, 0], [200, 100], [100, 0], [100, 50], [100, 100]) as [
+    string,
+    string,
+    string,
+    string,
+    string,
+  ];
+  fix(s, o1, o2);
+  label(s, { [o1]: 'O1', [o2]: 'O2', [a]: 'A', [m]: 'M', [b]: 'B' });
+  const arm1 = addLine(s, o1, a);
+  const am = addLine(s, a, m);
+  const mb = addLine(s, m, b);
+  const arm2 = addLine(s, b, o2);
+  add(
+    s,
+    { type: 'distance', refs: [arm1], value: 100, labelDx: 0, labelDy: -12 },
+    { type: 'angle', refs: [arm1], value: 0, labelDx: 30, labelDy: 10 },
+    { type: 'distance', refs: [am], value: 50, labelDx: -12, labelDy: 0 },
+    { type: 'distance', refs: [mb], value: 50, labelDx: -12, labelDy: 0 },
+    { type: 'parallel', refs: [am, mb] },
+    { type: 'distance', refs: [arm2], value: 100, labelDx: 0, labelDy: 12 },
+  );
+  p.mechanism.driver = {
+    ...p.mechanism.driver,
+    type: 'rotary',
+    line: arm1,
+    start: -25,
+    end: 25,
+    steps: 100,
+    speed: 30,
+    returnStroke: true,
+  };
+  p.mechanism.motion.trace = [m];
+  save(
+    'watt.csv',
+    p,
+    {
+      [arm1]: { name: 'Lower arm', lines: [] },
+      [am]: { name: 'Centre link', lines: [mb] },
+      [arm2]: { name: 'Upper arm', lines: [] },
+    },
+    (q) => {
+      bars(q, 0.002);
+      q.forces = {
+        ...q.forces,
+        mode: 'static',
+        loads: [loadOf('F1', 'force', { body: bodyWith(q, am).id, point: m, fx: 500 })],
+      };
+    },
+  );
+}
+
+function scotchYoke() {
+  const p = newProject(DATE);
+  p.meta.name = 'Scotch yoke';
+  p.meta.notes =
+    'The crank pin A slides in the vertical slot of the yoke, and the yoke slides in a horizontal guide. The yoke moves in pure simple harmonic motion: x = 40 cos θ. At 600 rpm the yoke inertia dominates the pin force; the 300 N load at R resists the motion both ways, like a pump.';
+  const s = p.sketch;
+  const [o, a, t1, t2, m, r, g1, g2] = pts(
+    s,
+    [0, 0],
+    [20, 34.641],
+    [20, -60],
+    [20, 60],
+    [20, 0],
+    [140, 0],
+    [100, 0],
+    [220, 0],
+  ) as [string, string, string, string, string, string, string, string];
+  fix(s, o, g1, g2);
+  label(s, { [o]: 'O', [a]: 'A', [r]: 'R' });
+  const crank = addLine(s, o, a);
+  const slot = addLine(s, t1, t2);
+  const rod = addLine(s, m, r);
+  const guide = addLine(s, g1, g2, true);
+  add(
+    s,
+    { type: 'distance', refs: [crank], value: 40, labelDx: -14, labelDy: 4 },
+    { type: 'angle', refs: [crank], value: 60, labelDx: 16, labelDy: 6 },
+    { type: 'vertical', refs: [slot] },
+    { type: 'distance', refs: [slot], value: 120, labelDx: -14, labelDy: 0 },
+    { type: 'midpoint', refs: [m, slot] },
+    { type: 'point_on_line', refs: [m, guide] },
+    { type: 'point_on_line', refs: [r, guide] },
+    { type: 'distance', refs: [rod], value: 120, labelDx: 0, labelDy: 12 },
+    { type: 'point_on_line', refs: [a, slot] },
+  );
+  p.mechanism.driver = { ...p.mechanism.driver, type: 'rotary', line: crank, steps: 360, speed: 600 };
+  p.mechanism.motion.trace = [r];
+  save(
+    'scotch-yoke.csv',
+    p,
+    { [crank]: { name: 'Crank', lines: [] }, [slot]: { name: 'Yoke', lines: [rod] } },
+    (q) => {
+      const yoke = bodyWith(q, slot);
+      Object.assign(yoke, { mass: 1.2, comX: 60, comY: 0, inertia: 3000 });
+      Object.assign(bodyWith(q, crank), { mass: 0.2, comX: 10, comY: 17.32, inertia: 30 });
+      q.forces = {
+        ...q.forces,
+        mode: 'kinetostatic',
+        loads: [loadOf('F1', 'force', { body: yoke.id, point: r, fx: 300, oppose: true })],
+      };
+    },
+  );
+}
+
+function shaper() {
+  const p = newProject(DATE);
+  p.meta.name = 'Shaper (six-bar quick return)';
+  p.meta.notes =
+    'A crank and slotted lever swing the lever O4-B; a link carries the motion to the ram, which slides on the top guide. One stroke takes about 1.7 times as long as the other (the crank turns 227° for it, 133° for the return). The 1500 N cutting force resists the motion, so it flips with the direction of travel; compare the crank torque on the two strokes.';
+  const s = p.sketch;
+  const [o4, o2, a, b, c, c2, g1, g2] = pts(
+    s,
+    [0, 0],
+    [0, 150],
+    [51.96, 180],
+    [83.2, 288.2],
+    [229.8, 320],
+    [379.8, 320],
+    [-300, 320],
+    [450, 320],
+  ) as [string, string, string, string, string, string, string, string];
+  fix(s, o4, o2, g1, g2);
+  label(s, { [o4]: 'O4', [o2]: 'O2', [a]: 'A', [b]: 'B', [c]: 'C', [c2]: 'Tool' });
+  const crank = addLine(s, o2, a);
+  const lever = addLine(s, o4, b);
+  const link = addLine(s, b, c);
+  const ram = addLine(s, c, c2);
+  const guide = addLine(s, g1, g2, true);
+  add(
+    s,
+    { type: 'distance', refs: [crank], value: 60, labelDx: 2, labelDy: 8 },
+    { type: 'angle', refs: [crank], value: 30, labelDx: 18, labelDy: 2 },
+    { type: 'point_on_line', refs: [a, lever] },
+    { type: 'distance', refs: [lever], value: 300, labelDx: -16, labelDy: 0 },
+    { type: 'distance', refs: [link], value: 150, labelDx: 0, labelDy: -10 },
+    { type: 'point_on_line', refs: [c, guide] },
+    { type: 'point_on_line', refs: [c2, guide] },
+    { type: 'distance', refs: [ram], value: 150, labelDx: 0, labelDy: 12 },
+  );
+  p.mechanism.driver = { ...p.mechanism.driver, type: 'rotary', line: crank, steps: 360, speed: 40 };
+  p.mechanism.motion.trace = [b];
+  save(
+    'shaper.csv',
+    p,
+    {
+      [crank]: { name: 'Crank', lines: [] },
+      [lever]: { name: 'Slotted lever', lines: [] },
+      [link]: { name: 'Link', lines: [] },
+      [ram]: { name: 'Ram', lines: [] },
+    },
+    (q) => {
+      bars(q, 0.004);
+      Object.assign(bodyWith(q, ram), { mass: 15, comX: 304.8, comY: 320, inertia: 30000 });
+      q.forces = {
+        ...q.forces,
+        mode: 'kinetostatic',
+        gravity: true,
+        loads: [loadOf('F1', 'force', { body: bodyWith(q, ram).id, point: c2, fx: 1500, oppose: true })],
+      };
+    },
+  );
+}
+
+function knucklePress() {
+  const p = newProject(DATE);
+  p.meta.name = 'Knuckle-joint press';
+  p.meta.notes =
+    'A crank pulls the knuckle K sideways; the two toggle links straighten and drive the ram down. As they near a straight line the ram slows and the force it can deliver climbs: the analysis solves for the ram force from a known 20 N·m crank torque, so the mechanical advantage shows directly.';
+  const s = p.sketch;
+  const [o1, o2, k, r, r2, a, g1, g2] = pts(
+    s,
+    [0, 200],
+    [290, 100],
+    [20, 102.02],
+    [0, 4.04],
+    [0, -55.96],
+    [260, 100],
+    [0, -200],
+    [0, -150],
+  ) as [string, string, string, string, string, string, string, string];
+  fix(s, o1, o2, g1, g2);
+  label(s, { [o1]: 'O1', [o2]: 'O2', [k]: 'K', [r]: 'R', [r2]: 'Die', [a]: 'A' });
+  const upper = addLine(s, o1, k);
+  const lower = addLine(s, k, r);
+  const ram = addLine(s, r, r2);
+  const crank = addLine(s, o2, a);
+  const rod = addLine(s, a, k);
+  const guide = addLine(s, g1, g2, true);
+  add(
+    s,
+    { type: 'distance', refs: [upper], value: 100, labelDx: 12, labelDy: 0 },
+    { type: 'distance', refs: [lower], value: 100, labelDx: 12, labelDy: 0 },
+    { type: 'point_on_line', refs: [r, guide] },
+    { type: 'point_on_line', refs: [r2, guide] },
+    { type: 'distance', refs: [ram], value: 60, labelDx: -12, labelDy: 0 },
+    { type: 'distance', refs: [crank], value: 30, labelDx: 0, labelDy: 10 },
+    { type: 'angle', refs: [crank], value: 180, labelDx: 10, labelDy: 10 },
+    { type: 'distance', refs: [rod], value: 240, labelDx: 0, labelDy: -10 },
+  );
+  p.mechanism.driver = { ...p.mechanism.driver, type: 'rotary', line: crank, steps: 360, speed: 30 };
+  p.mechanism.motion.trace = [r2];
+  save(
+    'knuckle-press.csv',
+    p,
+    {
+      [upper]: { name: 'Upper toggle', lines: [] },
+      [lower]: { name: 'Lower toggle', lines: [] },
+      [ram]: { name: 'Ram', lines: [] },
+      [crank]: { name: 'Crank', lines: [] },
+      [rod]: { name: 'Connecting rod', lines: [] },
+    },
+    (q) => {
+      const slide = q.mechanism.joints.find((j) => j.point === r2 && j.line === guide)!;
+      q.forces = {
+        ...q.forces,
+        mode: 'static',
+        solveFor: 'output',
+        input: 20000,
+        outputJoint: slide.id,
+        inputPoint: a,
+      };
+    },
+  );
+}
+
+function pumpJack() {
+  const p = newProject(DATE);
+  p.meta.name = 'Pump jack';
+  p.meta.notes =
+    'An oil-well beam pump: the crank drives the walking beam through the pitman, and the horsehead at H lifts the 8 kN rod and fluid load. A 600 kg counterweight on the crank arm balances most of the load, so the motor drives through part of each stroke and holds back (brakes) through the rest. Plot the driver torque to see both, then set the crank mass to zero and compare.';
+  const s = p.sketch;
+  const [o4, o2, h, b, a] = pts(s, [0, 300], [200, 0], [-300, 300], [200, 300], [200, 60]) as [
+    string,
+    string,
+    string,
+    string,
+    string,
+  ];
+  fix(s, o4, o2);
+  label(s, { [o4]: 'Samson post', [o2]: 'O2', [h]: 'H', [b]: 'B', [a]: 'A' });
+  const front = addLine(s, h, o4);
+  const rear = addLine(s, o4, b);
+  const pitman = addLine(s, a, b);
+  const crank = addLine(s, o2, a);
+  add(
+    s,
+    { type: 'distance', refs: [crank], value: 60, labelDx: 12, labelDy: 0 },
+    { type: 'angle', refs: [crank], value: 90, labelDx: 14, labelDy: -10 },
+    { type: 'distance', refs: [pitman], value: 240, labelDx: 14, labelDy: 0 },
+    { type: 'distance', refs: [rear], value: 200, labelDx: 0, labelDy: 12 },
+    { type: 'distance', refs: [front], value: 300, labelDx: 0, labelDy: 12 },
+    { type: 'parallel', refs: [front, rear] },
+  );
+  p.mechanism.driver = { ...p.mechanism.driver, type: 'rotary', line: crank, steps: 360, speed: 8 };
+  p.mechanism.motion.trace = [h];
+  save(
+    'pump-jack.csv',
+    p,
+    {
+      [front]: { name: 'Walking beam', lines: [rear] },
+      [pitman]: { name: 'Pitman', lines: [] },
+      [crank]: { name: 'Crank and counterweight', lines: [] },
+    },
+    (q) => {
+      Object.assign(bodyWith(q, front), { mass: 120, comX: -50, comY: 300, inertia: 2.5e6 });
+      Object.assign(bodyWith(q, pitman), { mass: 20, comX: 200, comY: 180, inertia: 1e5 });
+      // The counterweight sits on the crank arm beyond the pin, so it falls as the horsehead rises.
+      Object.assign(bodyWith(q, crank), { mass: 600, comX: 200, comY: 100, inertia: 1.5e6 });
+      q.forces = {
+        ...q.forces,
+        mode: 'kinetostatic',
+        gravity: true,
+        loads: [loadOf('F1', 'force', { body: bodyWith(q, front).id, point: h, fy: -8000 })],
+      };
+    },
+  );
+}
+
+function valveTrain() {
+  const p = newProject(DATE);
+  p.meta.name = 'Engine valve train';
+  p.meta.notes =
+    'A camshaft at O lifts a roller rocker arm pivoted at P; the other end of the rocker opens the valve against the valve spring. The cam (C1) is designed in the Cam workspace for an oscillating roller follower with the same pivot distance and arm length. At 1500 rpm watch the contact force: it must stay above zero or the roller would lift off.';
+  const seg = (id: string, type: 'rise' | 'return' | 'dwell', duration: number, lift = 0) => ({
+    id,
+    type,
+    duration,
+    lift,
+    law: 'cycloidal' as const,
+    extras: {},
+  });
+  p.cams = [
+    {
+      ...emptyCam('C1', 'Valve cam'),
+      follower: 'oscillating_roller',
+      baseRadius: 25,
+      rollerRadius: 8,
+      pivotDistance: 80,
+      armLength: 70,
+      speed: 1500,
+      segments: [
+        seg('S1', 'rise', 110, 10),
+        seg('S2', 'dwell', 20),
+        seg('S3', 'return', 110, 10),
+        seg('S4', 'dwell', 120),
+      ],
+    },
+  ];
+  // Draw the roller where the cam puts it 20° into the rise (the shaft drawn at 20°).
+  const curve = camPitchCurve(p.cams[0]!);
+  if ('message' in curve) throw new Error(curve.message);
+  const th = (20 * Math.PI) / 180;
+  const P = curve.at(th).P;
+  const roller: [number, number] = [
+    Math.cos(th) * P[0] - Math.sin(th) * P[1],
+    Math.sin(th) * P[0] + Math.cos(th) * P[1],
+  ];
+  const s = p.sketch;
+  const [o, k, pv, r, v, sp] = pts(s, [0, 0], [23.49, 8.55], [80, 0], roller, [150, 20], [150, -80]) as [
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+  ];
+  fix(s, o, pv, sp);
+  label(s, { [o]: 'O', [pv]: 'P', [r]: 'Roller', [v]: 'Valve', [sp]: 'Spring seat' });
+  const shaft = addLine(s, o, k);
+  const arm = addLine(s, pv, r);
+  const tip = addLine(s, pv, v);
+  add(
+    s,
+    { type: 'distance', refs: [shaft], value: 25 },
+    { type: 'angle', refs: [shaft], value: 20 },
+    { type: 'distance', refs: [arm], value: 70, labelDx: 0, labelDy: 10 },
+    { type: 'distance', refs: [o, r], value: Number(Math.hypot(...roller).toFixed(4)) },
+    { type: 'distance', refs: [tip], value: 70, labelDx: 0, labelDy: 10 },
+    { type: 'distance', refs: [r, v], value: Number(Math.hypot(150 - roller[0], 20 - roller[1]).toFixed(3)) },
+  );
+  p.mechanism.driver = { ...p.mechanism.driver, type: 'rotary', line: shaft, steps: 360, speed: 1500 };
+  p.mechanism.motion.trace = [v];
+  save(
+    'valve-train.csv',
+    p,
+    { [shaft]: { name: 'Camshaft', lines: [] }, [arm]: { name: 'Rocker arm', lines: [tip] } },
+    (q) => {
+      const camshaft = bodyWith(q, shaft);
+      const rocker = bodyWith(q, arm);
+      Object.assign(rocker, { mass: 0.08, comX: 80, comY: 10, inertia: 60 });
+      q.mechanism.pairs = [
+        pairRec({
+          id: 'K1',
+          type: 'cam',
+          cam: 'C1',
+          bodyA: camshaft.id,
+          pointA: o,
+          bodyB: rocker.id,
+          pointB: r,
+        }),
+      ];
+      q.forces = {
+        ...q.forces,
+        mode: 'kinetostatic',
+        loads: [loadOf('S1', 'spring', { point: v, pointB: sp, k: 15, free: 125 })],
+      };
+    },
+  );
+}
+
+function gearedFiveBar() {
+  const p = newProject(DATE);
+  p.meta.name = 'Geared five-bar';
+  p.meta.notes =
+    'Two meshing gears (20 and 40 teeth) turn two cranks, joined by a pair of links at P. The 2 : 1 gearing makes P trace a looped curve that a four-bar cannot. The big gear is the driver, so one turn of it closes the curve.';
+  const s = p.sketch;
+  const [o1, o2, a, b, f] = pts(s, [0, 0], [120, 0], [0, 30], [120, 50], [60, 160]) as [
+    string,
+    string,
+    string,
+    string,
+    string,
+  ];
+  fix(s, o1, o2);
+  label(s, { [o1]: 'O1', [o2]: 'O2', [a]: 'A', [b]: 'B', [f]: 'P' });
+  const c1 = addLine(s, o1, a);
+  const c2 = addLine(s, o2, b);
+  const l1 = addLine(s, a, f);
+  const l2 = addLine(s, b, f);
+  add(
+    s,
+    { type: 'distance', refs: [c1], value: 30, labelDx: -12, labelDy: 0 },
+    { type: 'angle', refs: [c1], value: 90, labelDx: 12, labelDy: -10 },
+    { type: 'distance', refs: [c2], value: 50, labelDx: 12, labelDy: 0 },
+    { type: 'angle', refs: [c2], value: 90, labelDx: 12, labelDy: -10 },
+    { type: 'distance', refs: [l1], value: 150, labelDx: -12, labelDy: 0 },
+    { type: 'distance', refs: [l2], value: 130, labelDx: 12, labelDy: 0 },
+  );
+  p.mechanism.driver = { ...p.mechanism.driver, type: 'rotary', line: c2, steps: 360, speed: 30 };
+  p.mechanism.motion.trace = [f];
+  save(
+    'geared-five-bar.csv',
+    p,
+    {
+      [c1]: { name: 'Small gear', lines: [] },
+      [c2]: { name: 'Large gear', lines: [] },
+      [l1]: { name: 'Left link', lines: [] },
+      [l2]: { name: 'Right link', lines: [] },
+    },
+    (q) => {
+      bars(q, 0.002);
+      q.mechanism.pairs = [
+        pairRec({
+          id: 'G1',
+          type: 'gear',
+          bodyA: bodyWith(q, c1).id,
+          pointA: o1,
+          bodyB: bodyWith(q, c2).id,
+          pointB: o2,
+          teethA: 20,
+          teethB: 40,
+        }),
+      ];
+      q.forces = {
+        ...q.forces,
+        mode: 'kinetostatic',
+        gravity: true,
+        loads: [loadOf('F1', 'force', { body: bodyWith(q, l1).id, point: f, fy: -100 })],
+      };
+    },
+  );
+}
+
+function steering() {
+  const p = newProject(DATE);
+  p.meta.name = 'Rack-and-pinion steering';
+  p.meta.notes =
+    'The steering pinion moves the rack, and tie rods turn the two steering arms about their kingpins (1500 mm apart). The arms point at the middle of the rear axle, 2600 mm behind, so the inner wheel turns further than the outer one (Ackermann steering): plot the two wheel angles to compare. The tyres resist turning with 40 N·m each.';
+  const s = p.sketch;
+  const track = 750;
+  const base = 2600;
+  const armLen = 150;
+  const tieLen = 300;
+  const d = Math.hypot(track, base);
+  const tip = (side: -1 | 1): [number, number] => [
+    side * (track - (armLen * track) / d),
+    -(armLen * base) / d,
+  ];
+  const rackY = tip(1)[1];
+  const rackEnd = tip(1)[0] - tieLen;
+  const r4 = (v: number) => Number(v.toFixed(4));
+  const [o, k, r1, r2, g1, g2, kl, kr, tl, tr, wl, wr] = pts(
+    s,
+    [0, r4(rackY + 20)],
+    [0, r4(rackY + 50)],
+    [r4(-rackEnd), r4(rackY)],
+    [r4(rackEnd), r4(rackY)],
+    [-1000, r4(rackY)],
+    [1000, r4(rackY)],
+    [-track, 0],
+    [track, 0],
+    tip(-1).map(r4) as [number, number],
+    tip(1).map(r4) as [number, number],
+    [-track, 250],
+    [track, 250],
+  ) as [string, string, string, string, string, string, string, string, string, string, string, string];
+  fix(s, o, g1, g2, kl, kr);
+  label(s, {
+    [o]: 'Pinion',
+    [kl]: 'Left kingpin',
+    [kr]: 'Right kingpin',
+    [wl]: 'Left wheel',
+    [wr]: 'Right wheel',
+  });
+  const spoke = addLine(s, o, k);
+  const rack = addLine(s, r1, r2);
+  const guide = addLine(s, g1, g2, true);
+  const armL = addLine(s, kl, tl);
+  const armR = addLine(s, kr, tr);
+  const tieL = addLine(s, r1, tl);
+  const tieR = addLine(s, r2, tr);
+  const wheelL = addLine(s, kl, wl);
+  const wheelR = addLine(s, kr, wr);
+  add(
+    s,
+    { type: 'distance', refs: [spoke], value: 30 },
+    { type: 'vertical', refs: [spoke] },
+    { type: 'point_on_line', refs: [r1, guide] },
+    { type: 'point_on_line', refs: [r2, guide] },
+    { type: 'distance', refs: [rack], value: r4(2 * rackEnd), labelDx: 0, labelDy: -14 },
+    { type: 'distance', refs: [g1, r1], value: r4(1000 - rackEnd) },
+    { type: 'distance', refs: [armL], value: armLen, labelDx: -14, labelDy: 0 },
+    { type: 'distance', refs: [armR], value: armLen, labelDx: 14, labelDy: 0 },
+    { type: 'distance', refs: [tieL], value: tieLen, labelDx: 0, labelDy: 12 },
+    { type: 'distance', refs: [tieR], value: tieLen, labelDx: 0, labelDy: 12 },
+    { type: 'distance', refs: [wheelL], value: 250 },
+    { type: 'vertical', refs: [wheelL] },
+    { type: 'distance', refs: [wheelR], value: 250 },
+    { type: 'vertical', refs: [wheelR] },
+  );
+  p.mechanism.driver = {
+    ...p.mechanism.driver,
+    type: 'rotary',
+    line: spoke,
+    start: -80,
+    end: 260,
+    steps: 170,
+    speed: 20,
+    returnStroke: true,
+  };
+  save(
+    'steering.csv',
+    p,
+    {
+      [spoke]: { name: 'Pinion', lines: [] },
+      [rack]: { name: 'Rack', lines: [] },
+      [armL]: { name: 'Left wheel', lines: [wheelL] },
+      [armR]: { name: 'Right wheel', lines: [wheelR] },
+      [tieL]: { name: 'Left tie rod', lines: [] },
+      [tieR]: { name: 'Right tie rod', lines: [] },
+    },
+    (q) => {
+      q.mechanism.pairs = [
+        pairRec({
+          id: 'R1',
+          type: 'rack',
+          bodyA: bodyWith(q, spoke).id,
+          pointA: o,
+          bodyB: bodyWith(q, rack).id,
+          line: rack,
+          teethA: 16,
+        }),
+      ];
+      q.forces = {
+        ...q.forces,
+        mode: 'static',
+        loads: [
+          loadOf('T1', 'torque', { body: bodyWith(q, armL).id, torque: 40000, oppose: true }),
+          loadOf('T2', 'torque', { body: bodyWith(q, armR).id, torque: 40000, oppose: true }),
+        ],
+      };
+    },
+  );
+}
+
 it.skipIf(!process.env.GENERATE_EXAMPLES)('generates example projects', () => {
   fourBar();
   sliderCrank();
@@ -469,4 +1081,13 @@ it.skipIf(!process.env.GENERATE_EXAMPLES)('generates example projects', () => {
   cam();
   camSlide();
   gears();
+  hoekens();
+  watt();
+  scotchYoke();
+  shaper();
+  knucklePress();
+  pumpJack();
+  valveTrain();
+  gearedFiveBar();
+  steering();
 });

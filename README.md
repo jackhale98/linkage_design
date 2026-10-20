@@ -38,7 +38,10 @@ Phases 0–4 are complete:
   - an animated cam, and profile export as CSV, DXF and SVG.
   - several cams per project.
 - **Cam and gear joints:** mount a cam on a link with a roller on another (one-sided contact, with a lift-off warning), and add external gear pairs and racks by tooth count. Tooth, separating and contact forces appear in the force results.
-- **Examples:** four-bar, slider-crank, quick-return, hydraulic boom, a dwell-rise-dwell cam, a cam-driven slide, and a gear pair with a rack.
+- **Examples** (16, grouped in the Examples menu, each checked by tests against the claims in its notes):
+  - linkages: four-bar with coupler curve, Hoekens and Watt straight-line linkages, slider-crank, scotch yoke, quick-return, and a six-bar shaper;
+  - machines and forces: a knuckle-joint press (output force from a known torque), an oil-well pump jack with counterweight, a hydraulic boom, and rack-and-pinion Ackermann steering;
+  - cams and gears: a dwell-rise-dwell cam, a cam-driven slide, an engine valve train, a gear pair with a rack, and a geared five-bar.
 - **Files:** one CSV project file with undo/redo and autosave.
 
 Next: extensions such as linkage synthesis. See the [design document](docs/DESIGN.md) for the architecture, solver math and roadmap, and the [file format reference](docs/FILE_FORMAT.md) for the CSV layout.
